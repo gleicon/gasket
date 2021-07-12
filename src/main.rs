@@ -1,11 +1,7 @@
 use actix_web::client::Client;
-use actix_web::error as actix_error;
-use actix_web::http::header::{HeaderMap, HeaderName};
 use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Result};
-use futures::future::lazy;
-use futures::{Future, Stream};
 use log::info;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use url::Url;
 
 mod http_utils;
@@ -41,14 +37,10 @@ async fn forward(
     let client = client.get_ref();
 
     let forward_request = http_utils::ForwardRequestClientBuilder::new(req, client, url);
-
-    let res = forward_request
-        .client_req
-        .send_body(body)
-        .await
-        .map_err(actix_web::Error::from)?;
-
-    let mut cb = http_utils::HttpResponseClientBuilder::new(res, forward_request.id);
+    let id = forward_request.id;
+    info!("{}", format!("Request id: {:?}", id.clone()));
+    let res = forward_request.send_body(body).await?;
+    let mut cb = http_utils::HttpResponseClientBuilder::new(res, id);
 
     Ok(cb.client_response().await)
 }

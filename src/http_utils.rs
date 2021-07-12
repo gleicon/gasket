@@ -1,11 +1,8 @@
-use actix_web::http::header::HeaderMap;
-use actix_web::{HttpRequest, HttpResponse};
-use url::Url;
+use actix_web::HttpResponse;
 use uuid::Uuid;
 
 const HEADER_X_FORWARDED_FOR: &str = "x-forwarded-for";
 const HEADER_X_GASKET_REQUEST_ID: &str = "x-gasket-request-id";
-const HEADER_X_GASKET_THROTTLE: &str = "x-gasket-throttle";
 
 // const HOP_BY_HOP_HEADERS: Vec<&str> = vec![
 //     "connection",
@@ -24,7 +21,6 @@ const HEADER_X_GASKET_THROTTLE: &str = "x-gasket-throttle";
 // consider adding mTLS info
 pub struct ForwardRequestClientBuilder {
     pub id: Uuid, // request unique id
-    new_header_map: HeaderMap,
     pub client_req: actix_web::client::ClientRequest,
 }
 
@@ -39,31 +35,58 @@ impl ForwardRequestClientBuilder {
         new_url.set_query(req.uri().query());
         let mut s = Self {
             id: Uuid::new_v4(),
-            new_header_map: HeaderMap::new(),
             client_req: client
                 .request_from(new_url.as_str(), req.head())
                 .no_decompress(),
         };
+
         s.client_req = if let Some(addr) = req.head().peer_addr {
             s.client_req
-                .header("x-forwarded-for", format!("{}", addr.ip()))
+                .header(HEADER_X_FORWARDED_FOR, format!("{}", addr.ip()))
         } else {
             s.client_req
         };
         s.client_req = s
             .client_req
             .header(HEADER_X_GASKET_REQUEST_ID, s.id.to_string());
-        s.filter_headers(req.headers());
         return s;
     }
 
-    pub fn filter_headers(&mut self, headers: &HeaderMap) {
-        self.new_header_map = headers.clone()
+    pub async fn send_body<B>(
+        self: Self,
+        body: B,
+    ) -> Result<
+        actix_web::client::ClientResponse<
+            actix_web::dev::Decompress<
+                actix_web::dev::Payload<
+                    std::pin::Pin<
+                        std::boxed::Box<
+                            dyn futures::Stream<
+                                Item = std::result::Result<
+                                    actix_web::web::Bytes,
+                                    actix_web::error::PayloadError,
+                                >,
+                            >,
+                        >,
+                    >,
+                >,
+            >,
+        >,
+        actix_web::Error,
+    >
+    // ::SendClientRequest
+    where
+        B: Into<actix_web::dev::Body>,
+    {
+        self.client_req
+            .send_body(body)
+            .await
+            .map_err(actix_web::Error::from)
     }
 }
 
 pub struct HttpResponseClientBuilder {
-    pub id: Uuid, // request unique id
+    pub id: Uuid, // same as the request unique id
     pub http_response_client: actix_web::dev::HttpResponseBuilder,
     res: actix_web::client::ClientResponse<
         actix_web::dev::Decompress<
