@@ -10,7 +10,7 @@ Gasket is both a proxy which can terminate TLS and mTLS connections and a PID1 m
     - Its architecture behaves as an PID1 manager to spawn a TLS aware proxy and then the service, with signal management and process supervision. 
     - It makes the original service listen in a local port, listen in the original env var PORT and proxies requests locally with low overhead.
 
-˜[diagram](gasket.png)
+[!diagram](gasket.png)
 
 #### Why ?
 
