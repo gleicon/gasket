@@ -20,7 +20,7 @@ Gasket is both a proxy which can terminate TLS and mTLS connections and a PID1 m
 
 #### Why ?
 
-    - I wanted to have tls and mtls termination at the container and experiment with Rust to do it. I didn't wanted to adopt a Service MEsh for that and I believe that the mix of cgroups, namespaces and linux allow for a powerful ENTRYPOINT management tool to help on that.
+I wanted to have tls and mtls termination at the container and experiment with Rust to do it. I didn't wanted to adopt a Service MEsh for that and I believe that the mix of cgroups, namespaces and linux allow for a powerful ENTRYPOINT management tool to help on that.
 
 #### Build
 $ cargo build --release
