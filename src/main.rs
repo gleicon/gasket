@@ -3,9 +3,6 @@ use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Res
 use clap::{AppSettings, Clap};
 use log::info;
 use std::net::SocketAddr;
-use std::process::Command;
-use std::thread;
-use std::time;
 
 use url::Url;
 
