@@ -3,14 +3,14 @@ use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Res
 use clap::{AppSettings, Clap};
 use log::info;
 use std::net::SocketAddr;
-use std::thread;
-
 use std::process::Command;
+use std::thread;
 use std::time;
 
 use url::Url;
 
 mod http_utils;
+mod process_manager;
 
 #[derive(Clap, Debug)]
 #[clap(name = "gasket")]
@@ -42,30 +42,8 @@ async fn main() -> std::io::Result<()> {
 
     let cmd = gasket_options.command.clone();
     if cmd != "" {
-        info!("Spawning: {}", cmd);
-        // loop task to keep server up
-        thread::spawn(move || {
-            let cleanup_time = time::Duration::from_secs(1);
-            let mut respawn_counter = 0;
-            loop {
-                let st = Command::new("python")
-                    .args(["-mSimpleHTTPServer", "3000"])
-                    .status()
-                    .expect("sh command failed to start");
-                match st.code() {
-                    Some(code) => println!("Process exited with status code: {}", code),
-                    None => println!("Process terminated by signal"),
-                }
-                // give it a buffer before respawning
-                respawn_counter = respawn_counter + 1;
-                if respawn_counter > 1 {
-                    println!("Process spawning too much, aborting gasket");
-                    std::process::exit(-1);
-                }
-                println!("sleeping before respawn {}", respawn_counter);
-                thread::sleep(cleanup_time);
-            }
-        });
+        let mut pm = process_manager::ProcessManager::new();
+        pm.spawn_process(&cmd);
     };
 
     match gasket_options.tls_cert {

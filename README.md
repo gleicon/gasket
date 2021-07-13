@@ -6,9 +6,15 @@ Gasket is both a proxy which can terminate TLS and mTLS connections and a PID1 m
 
 #### How ?
 
-    - It is meant to be used at a containers ENTRYPOINT to wrap any 12 factor service or application.
-    - Its architecture behaves as an PID1 manager to spawn a TLS aware proxy and then the service, with signal management and process supervision. 
-    - It makes the original service listen in a local port, listen in the original env var PORT and proxies requests locally with low overhead.
+- Use it as the container ENTRYPOINT to wrap any 12 factor service or application.
+
+- Gasket behaves as a PID1 manager: after starting it will spin up the https endpoing, translate the received environment variables and spawn the service
+
+- Gasket also does signal management and process supervision - if the process dies it will restart it up until a configurable limit.
+
+- Gasket is meant to be used with 12 Factor applications - It will listen to the PORT number indicated by the PORT env variable and will make the original service listen in the localhost on PORT + 1. 
+
+#### Traffic flow
 
 ![diagram](gasket.png)
 
