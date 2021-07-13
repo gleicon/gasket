@@ -1,19 +1,52 @@
 use actix_web::client::Client;
 use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Result};
+use clap::{AppSettings, Clap};
 use log::info;
 use std::net::SocketAddr;
+
 use url::Url;
 
 mod http_utils;
+mod process_manager;
+
+#[derive(Clap, Debug)]
+#[clap(name = "gasket")]
+#[clap(setting = AppSettings::ColoredHelp)]
+struct GasketOptions {
+    /// command to be executed
+    #[clap(short = 'e', long = "execute", default_value = "")]
+    command: String,
+
+    /// listening port setting
+    #[clap(short = 'p', long = "port")]
+    port: Option<String>,
+
+    /// tls cert path
+    #[clap(short = 'c', long = "cert")]
+    tls_cert: Option<String>,
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let listen_addr = "127.0.0.1:8443";
     let addr2 = SocketAddr::from(([127, 0, 0, 1], 3000));
     let forward_url = Url::parse(&format!("http://{}", addr2)).unwrap();
+    let gasket_options = GasketOptions::parse();
 
+    std::env::set_var("RUST_LOG", "actix_web=info,actix_server=trace");
     env_logger::init();
     info!("Gasket --");
+
+    let cmd = gasket_options.command.clone();
+    if cmd != "" {
+        let mut pm = process_manager::ProcessManager::new();
+        pm.spawn_process(cmd);
+    };
+
+    match gasket_options.tls_cert {
+        Some(cert_path) => info!("TLS Cert path: {:?}", cert_path),
+        None => (),
+    };
 
     HttpServer::new(move || {
         App::new()
