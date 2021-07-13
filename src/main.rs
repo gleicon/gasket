@@ -43,7 +43,7 @@ async fn main() -> std::io::Result<()> {
     let cmd = gasket_options.command.clone();
     if cmd != "" {
         let mut pm = process_manager::ProcessManager::new();
-        pm.spawn_process(&cmd);
+        pm.spawn_process(cmd);
     };
 
     match gasket_options.tls_cert {

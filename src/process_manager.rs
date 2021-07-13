@@ -8,16 +8,18 @@ pub struct ProcessManager {
 }
 
 impl ProcessManager {
-    pub fn spawn_process(&mut self, cmd: &str) {
+    pub fn spawn_process(&mut self, cmd: String) {
         if cmd != "" {
             info!("Spawning: {}", cmd);
-
             thread::spawn(move || {
+                let arr_cmd: Vec<&str> = cmd.split_whitespace().collect();
+                let cmd = arr_cmd[0].clone();
+
                 let cleanup_time = time::Duration::from_secs(1);
                 let mut respawn_counter = 0;
                 loop {
-                    let st = Command::new("python")
-                        .args(["-mSimpleHTTPServer", "3000"])
+                    let st = Command::new(cmd)
+                        .args(&arr_cmd)
                         .status()
                         .expect("sh command failed to start");
                     match st.code() {
