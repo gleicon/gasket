@@ -56,6 +56,7 @@ impl ProcessManager {
             port: port,
             max_spawns: MAX_SPAWNS,
         };
+
         if s.self_pid == 1 {
             info!("Running as PID1");
             // set signal handlers and grimreaper for zombies
