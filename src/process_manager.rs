@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time;
 
+#[derive(Clone, Copy)]
 pub struct ProcessManager {
     pub self_pid: u32,
     pub child_process: i32,
@@ -26,7 +27,7 @@ impl StaticProcessManager {
             info!("Spawning: {}", cmd);
             let local_process_manager = self.pm.clone();
 
-            thread::spawn(move || {
+            tokio::spawn(async move {
                 let ms = local_process_manager.lock().unwrap().max_spawns;
                 let port = local_process_manager.lock().unwrap().port;
 
@@ -42,6 +43,8 @@ impl StaticProcessManager {
                         .env("PORT", port.to_string())
                         .spawn()
                         .unwrap();
+                    println!("Spawning new process: {}", child.id());
+
                     local_process_manager.lock().unwrap().child_process =
                         (child.id()).try_into().unwrap();
 
@@ -79,7 +82,7 @@ impl ProcessManager {
             .map(|s| s.parse().unwrap_or(3000))
             .unwrap_or(3000);
 
-        let mut s = Self {
+        let s = Self {
             self_pid: std::process::id(),
             port: port + 1, // increment port by 1
             max_spawns: MAX_SPAWNS,
@@ -100,20 +103,27 @@ impl ProcessManager {
             // let _ = signal_hook::flag::register(libc::SIGCHLD, Arc::clone(&child));
         }
         info!("PORT: {}, child PORT: {}", s.port, s.port + 1);
-        s.grim_reaper().await.unwrap();
+        // s.grim_reaper().await.unwrap();
         return s;
     }
 
-    async fn grim_reaper(&mut self) -> Result<(), std::io::Error> {
-        let till = self.child_process.clone();
-        if till == 0 {
-            ()
-        }
+    async fn grim_reaper(self: Self) -> Result<(), std::io::Error> {
+        // let till = self.child_process.clone();
+        // if till == 0 {
+        //     ()
+        // }
+
+        println!("Installing signal handlers");
         let mut status = 0;
+        let mut sigterm_stream =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
         let mut stream = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())?;
+
         tokio::spawn(async move {
             while stream.recv().await.is_some() {
                 loop {
+                    let till = self.child_process.clone();
+                    println!("Monitoring SIGCHLD for: {}", till);
                     let pid = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
                     if pid == till {
                         return ();
@@ -122,18 +132,14 @@ impl ProcessManager {
                     }
                 }
             }
-            //return Ok(());
         });
-        // while stream.recv().await.is_some() {
-        //     loop {
-        //         let pid = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
-        //         if pid == till {
-        //             return Ok(());
-        //         } else if pid <= 0 {
-        //             break;
-        //         }
-        //     }
-        // }
+        tokio::spawn(async move {
+            while sigterm_stream.recv().await.is_some() {
+                let till = self.child_process.clone();
+                println!("Received SIGTERM, forwarding to child: {}", till);
+                let _ = unsafe { libc::kill(till, 9) };
+            }
+        });
         Ok(())
     }
 }
