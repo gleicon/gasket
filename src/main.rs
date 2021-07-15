@@ -4,6 +4,7 @@ use clap::{AppSettings, Clap};
 use log::info;
 use std::net::SocketAddr;
 
+use std::env;
 use url::Url;
 
 mod http_utils;
@@ -17,10 +18,6 @@ struct GasketOptions {
     #[clap(short = 'e', long = "execute", default_value = "")]
     command: String,
 
-    /// listening port setting
-    #[clap(short = 'p', long = "port")]
-    port: Option<String>,
-
     /// tls cert path
     #[clap(short = 'c', long = "cert")]
     tls_cert: Option<String>,
@@ -28,9 +25,20 @@ struct GasketOptions {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let listen_addr = "127.0.0.1:8443";
-    let addr2 = SocketAddr::from(([127, 0, 0, 1], 3000));
-    let forward_url = Url::parse(&format!("http://{}", addr2)).unwrap();
+    // PORT will always be a pair like:
+    // Origin port is 3000, destination port will be 3001
+    // Gasket increments the port by one based on the PORT env var
+    // or defaults to port 3000
+    let port = env::var("PORT")
+        .map(|s| s.parse().unwrap_or(3000))
+        .unwrap_or(3000);
+    let dest_port = port + 1;
+
+    // proxy settings
+    // always bind to localhost, always proxy to localhost
+    let listen_addr = format!("127.0.0.1:{}", port.to_string());
+    let destination_addr = SocketAddr::from(([127, 0, 0, 1], dest_port));
+    let forward_url = Url::parse(&format!("http://{}", destination_addr)).unwrap();
     let gasket_options = GasketOptions::parse();
 
     std::env::set_var("RUST_LOG", "actix_web=info,actix_server=trace");
@@ -39,8 +47,9 @@ async fn main() -> std::io::Result<()> {
 
     let cmd = gasket_options.command.clone();
     if cmd != "" {
-        let mut pm = process_manager::ProcessManager::new();
-        pm.spawn_process(cmd);
+        let mut pm = process_manager::StaticProcessManager::new().await;
+        info!("before spawn");
+        pm.spawn_process(cmd).await;
     };
 
     match gasket_options.tls_cert {
