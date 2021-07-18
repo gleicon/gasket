@@ -1,4 +1,4 @@
-use actix_web::HttpResponse;
+use actix_web::{HttpRequest, HttpResponse};
 use uuid::Uuid;
 
 const HEADER_X_FORWARDED_FOR: &str = "x-forwarded-for";
@@ -16,134 +16,53 @@ const HEADER_X_GASKET_REQUEST_ID: &str = "x-gasket-request-id";
 //     "upgrade",
 // ];
 
-// prune hop by hop headers, create a new headermap with the rest
-// add gasket id and throttle info
-// consider adding mTLS info
-pub struct ForwardRequestClientBuilder {
+// TODO: prune hop by hop headers
+// TODO: add throttle info
+// TODO: consider adding mTLS info
+pub struct Proxy {
     pub id: Uuid, // request unique id
-    pub client_req: actix_web::client::ClientRequest,
 }
 
-impl ForwardRequestClientBuilder {
-    pub fn new(
-        req: actix_web::HttpRequest,
-        client: &actix_web::client::Client,
+impl Proxy {
+    pub async fn forward(
+        req: HttpRequest,
+        body: actix_web::web::Bytes,
         url: &url::Url,
-    ) -> Self {
+    ) -> actix_web::Result<actix_web::HttpResponse> {
+        let client = awc::Client::new();
         let mut new_url = url.clone();
+
         new_url.set_path(req.uri().path());
         new_url.set_query(req.uri().query());
-        let mut s = Self {
-            id: Uuid::new_v4(),
-            client_req: client
-                .request_from(new_url.as_str(), req.head())
-                .no_decompress(),
-        };
+        let mut client_req = client
+            .request_from(new_url.as_str(), req.head())
+            .no_decompress();
 
-        s.client_req = if let Some(addr) = req.head().peer_addr {
-            s.client_req
-                .header(HEADER_X_FORWARDED_FOR, format!("{}", addr.ip()))
+        println!("oi");
+        client_req = if let Some(addr) = req.peer_addr() {
+            client_req.append_header((HEADER_X_FORWARDED_FOR, format!("{}", addr.ip())))
         } else {
-            s.client_req
+            client_req
         };
-        s.client_req = s
-            .client_req
-            .header(HEADER_X_GASKET_REQUEST_ID, s.id.to_string());
-        return s;
-    }
+        println!("oi");
+        let id = Uuid::new_v4();
+        client_req = client_req.append_header((HEADER_X_GASKET_REQUEST_ID, id.to_string()));
+        let mut res = client_req.send_body(body).await.unwrap();
+        println!("oi");
+        let res_body = actix_web::dev::AnyBody::from(res.body().await.unwrap());
 
-    pub async fn send_body<B>(
-        self: Self,
-        body: B,
-    ) -> Result<
-        actix_web::client::ClientResponse<
-            actix_web::dev::Decompress<
-                actix_web::dev::Payload<
-                    std::pin::Pin<
-                        std::boxed::Box<
-                            dyn futures::Stream<
-                                Item = std::result::Result<
-                                    actix_web::web::Bytes,
-                                    actix_web::error::PayloadError,
-                                >,
-                            >,
-                        >,
-                    >,
-                >,
-            >,
-        >,
-        actix_web::Error,
-    >
-    // ::SendClientRequest
-    where
-        B: Into<actix_web::dev::Body>,
-    {
-        self.client_req
-            .send_body(body)
-            .await
-            .map_err(actix_web::Error::from)
-    }
-}
+        let mut hrb = HttpResponse::build(res.status());
 
-pub struct HttpResponseClientBuilder {
-    pub id: Uuid, // same as the request unique id
-    pub http_response_client: actix_web::dev::HttpResponseBuilder,
-    res: actix_web::client::ClientResponse<
-        actix_web::dev::Decompress<
-            actix_web::dev::Payload<
-                std::pin::Pin<
-                    std::boxed::Box<
-                        dyn futures::Stream<
-                            Item = std::result::Result<
-                                actix_web::web::Bytes,
-                                actix_web::error::PayloadError,
-                            >,
-                        >,
-                    >,
-                >,
-            >,
-        >,
-    >,
-}
-
-impl HttpResponseClientBuilder {
-    pub fn new(
-        res: actix_web::client::ClientResponse<
-            actix_web::dev::Decompress<
-                actix_web::dev::Payload<
-                    std::pin::Pin<
-                        std::boxed::Box<
-                            dyn futures::Stream<
-                                Item = std::result::Result<
-                                    actix_web::web::Bytes,
-                                    actix_web::error::PayloadError,
-                                >,
-                            >,
-                        >,
-                    >,
-                >,
-            >,
-        >,
-        id: Uuid,
-    ) -> Self {
-        let mut s = Self {
-            id: id,
-            http_response_client: HttpResponse::build(res.status()),
-            res: res,
-        };
-        for (header_name, header_value) in
-            s.res.headers().iter().filter(|(h, _)| *h != "connection")
+        println!("oi");
+        // prune headers
+        for (header_name, header_value) in res.headers().iter().filter(|(h, _)| *h != "connection")
         {
-            s.http_response_client
-                .header(header_name.clone(), header_value.clone());
+            hrb.append_header((header_name.clone(), header_value.clone()));
         }
-        s.http_response_client
-            .header(HEADER_X_GASKET_REQUEST_ID, s.id.to_string());
-        return s;
-    }
+        hrb.append_header((HEADER_X_GASKET_REQUEST_ID, id.to_string()));
+        println!("oi");
+        let res_a = hrb.message_body(res_body).unwrap();
 
-    pub async fn client_response(&mut self) -> actix_web::HttpResponse {
-        self.http_response_client
-            .body(self.res.body().await.unwrap())
+        return Ok(res_a);
     }
 }

@@ -7,17 +7,27 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::time;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+
+use std::io::Error;
+
+use signal_hook::consts::signal::*;
+use signal_hook_tokio::Signals;
+
+use futures::stream::StreamExt;
 
 #[derive(Clone, Copy)]
 pub struct ProcessManager {
-    pub self_pid: u32,
     pub child_process: i32,
-    pub port: u32,
-    pub max_spawns: u32,
 }
 
 pub struct StaticProcessManager {
     pm: Arc<Mutex<ProcessManager>>,
+    pid_sender: Arc<Mutex<UnboundedSender<u32>>>,
+    pid_receiver: UnboundedReceiver<u32>,
+    pub port: u32,
+    pub max_spawns: u32,
+    pub self_pid: u32,
 }
 const MAX_SPAWNS: u32 = 5;
 
@@ -25,12 +35,11 @@ impl StaticProcessManager {
     pub async fn spawn_process(&mut self, cmd: String) {
         if cmd != "" {
             info!("Spawning: {}", cmd);
-            let local_process_manager = self.pm.clone();
+            let local_pid_sender = self.pid_sender.clone();
+            let ms = self.max_spawns;
+            let port = self.port;
 
             tokio::spawn(async move {
-                let ms = local_process_manager.lock().unwrap().max_spawns;
-                let port = local_process_manager.lock().unwrap().port;
-
                 let arr_cmd: Vec<&str> = cmd.split_whitespace().collect();
                 println!("{:?}", arr_cmd);
                 let cmd = arr_cmd[0].clone();
@@ -44,9 +53,11 @@ impl StaticProcessManager {
                         .spawn()
                         .unwrap();
                     println!("Spawning new process: {}", child.id());
-
-                    local_process_manager.lock().unwrap().child_process =
-                        (child.id()).try_into().unwrap();
+                    // local_pid_sender
+                    //     .lock()
+                    //     .unwrap()
+                    //     .send((child.id()).try_into().unwrap())
+                    //     .unwrap();
 
                     match child.wait() {
                         Ok(c) => match c.code() {
@@ -69,77 +80,81 @@ impl StaticProcessManager {
     }
 
     pub async fn new() -> Self {
-        let s = Self {
+        let port = env::var("PORT")
+            .map(|s| s.parse().unwrap_or(3000))
+            .unwrap_or(3000);
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let mut s = Self {
+            self_pid: std::process::id(),
             pm: Arc::new(Mutex::new(ProcessManager::new().await)),
+            pid_receiver: rx,
+            pid_sender: Arc::new(Mutex::new(tx)),
+            port: port + 1, // increment port by 1
+            max_spawns: MAX_SPAWNS,
         };
+
+        println!("PORT: {}, child PORT: {}", s.port, s.port + 1);
+        println!("Installing signal handlers");
+
+        let signals = Signals::new(&[SIGHUP, SIGTERM, SIGINT, SIGQUIT, SIGCHLD]).unwrap();
+        let handle = signals.handle();
+        //let signals_task = tokio::spawn(s.grim_reaper(signals));
+        s.grim_reaper(signals).await;
+        // s.grim_reaper().await.unwrap();
         return s;
+    }
+    async fn grim_reaper(&mut self, signals: Signals) {
+        let mut signals = signals.fuse();
+        let signal_task = tokio::spawn(async move {
+            while let Some(signal) = signals.next().await {
+                match signal {
+                    SIGHUP => {
+                        // Reload configuration
+                        // Reopen the log file
+                    }
+                    SIGCHLD => {
+                        // reap
+                    }
+                    SIGTERM | SIGINT | SIGQUIT => {
+                        // Shutdown the system;
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        });
     }
 }
 
 impl ProcessManager {
     pub async fn new() -> Self {
-        let port = env::var("PORT")
-            .map(|s| s.parse().unwrap_or(3000))
-            .unwrap_or(3000);
+        let s = Self { child_process: 0 };
 
-        let s = Self {
-            self_pid: std::process::id(),
-            port: port + 1, // increment port by 1
-            max_spawns: MAX_SPAWNS,
-            child_process: 0,
-        };
-
-        if s.self_pid == 1 {
-            info!("Running as PID1");
-            // set signal handlers and grimreaper for zombies
-
-            // Launch the child process requested.
-            // Install a SIGCHLD signal handler, which will indicate that a child or orphan process is ready to be reaped.
-            // Install a SIGINT signal handler which will send a SIGINT to the child process. This will make Ctrl-C work.
-            // Start a loop that reaps a child each time SIGCHLD occurs.
-            // let term = Arc::new(AtomicBool::new(false));
-            // let child = Arc::new(AtomicBool::new(false));
-            // let _ = signal_hook::flag::register(libc::SIGINT, Arc::clone(&term));
-            // let _ = signal_hook::flag::register(libc::SIGCHLD, Arc::clone(&child));
-        }
-        info!("PORT: {}, child PORT: {}", s.port, s.port + 1);
+        println!("Installing signal handlers");
+        let signals = Signals::new(&[SIGHUP, SIGTERM, SIGINT, SIGQUIT, SIGCHLD]).unwrap();
+        let handle = signals.handle();
+        let signals_task = tokio::spawn(s.grim_reaper(signals));
         // s.grim_reaper().await.unwrap();
         return s;
     }
 
-    async fn grim_reaper(self: Self) -> Result<(), std::io::Error> {
-        // let till = self.child_process.clone();
-        // if till == 0 {
-        //     ()
-        // }
-
-        println!("Installing signal handlers");
-        let mut status = 0;
-        let mut sigterm_stream =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-        let mut stream = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())?;
-
-        tokio::spawn(async move {
-            while stream.recv().await.is_some() {
-                loop {
-                    let till = self.child_process.clone();
-                    println!("Monitoring SIGCHLD for: {}", till);
-                    let pid = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
-                    if pid == till {
-                        return ();
-                    } else if pid <= 0 {
-                        break;
-                    }
+    async fn grim_reaper(self: Self, signals: Signals) {
+        let mut signals = signals.fuse();
+        while let Some(signal) = signals.next().await {
+            match signal {
+                SIGHUP => {
+                    // Reload configuration
+                    // Reopen the log file
                 }
+                SIGCHLD => {
+                    // reap
+                }
+                SIGTERM | SIGINT | SIGQUIT => {
+                    // Shutdown the system;
+                }
+                _ => unreachable!(),
             }
-        });
-        tokio::spawn(async move {
-            while sigterm_stream.recv().await.is_some() {
-                let till = self.child_process.clone();
-                println!("Received SIGTERM, forwarding to child: {}", till);
-                let _ = unsafe { libc::kill(till, 9) };
-            }
-        });
-        Ok(())
+        }
     }
 }

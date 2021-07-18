@@ -1,4 +1,4 @@
-use actix_web::client::Client;
+//use actix_http::HttpRequest;
 use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Result};
 use clap::{AppSettings, Clap};
 use log::info;
@@ -41,7 +41,7 @@ async fn main() -> std::io::Result<()> {
     let forward_url = Url::parse(&format!("http://{}", destination_addr)).unwrap();
     let gasket_options = GasketOptions::parse();
 
-    std::env::set_var("RUST_LOG", "actix_web=info,actix_server=trace");
+    std::env::set_var("RUST_LOG", "actix_web=debug,actix_server=debug");
     env_logger::init();
     info!("Gasket --");
 
@@ -56,11 +56,13 @@ async fn main() -> std::io::Result<()> {
         Some(cert_path) => info!("TLS Cert path: {:?}", cert_path),
         None => (),
     };
+    info!("starting server");
 
     HttpServer::new(move || {
         App::new()
-            .data(Client::new())
-            .data(forward_url.clone())
+            // .app_data(forward_url.clone())
+            // .app_data(web::Data::new("127.0.0.1.to_string()"))
+            .app_data(web::Data::new(dest_port))
             .wrap(middleware::Logger::default())
             .default_service(web::route().to(forward))
     })
@@ -72,17 +74,13 @@ async fn main() -> std::io::Result<()> {
 async fn forward(
     req: HttpRequest,
     body: web::Bytes,
-    url: web::Data<Url>,
-    client: web::Data<Client>,
+    dest_port: web::Data<u16>,
+    // dest_addr: web::Data<String>,
+    // url: web::Data<url::Url>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let url = url.get_ref();
-    let client = client.get_ref();
-
-    let forward_request = http_utils::ForwardRequestClientBuilder::new(req, client, url);
-    let id = forward_request.id;
-    info!("{}", format!("Request id: {:?}", id.clone()));
-    let res = forward_request.send_body(body).await?;
-    let mut cb = http_utils::HttpResponseClientBuilder::new(res, id);
-
-    Ok(cb.client_response().await)
+    info!("request");
+    let dest_port = *dest_port.get_ref();
+    let destination_addr = SocketAddr::from(([127, 0, 0, 1], dest_port));
+    let forward_url = Url::parse(&format!("http://{}", destination_addr)).unwrap();
+    http_utils::Proxy::forward(req, body, &forward_url).await
 }
