@@ -1,4 +1,3 @@
-//use actix_http::HttpRequest;
 use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Result};
 use clap::{AppSettings, Clap};
 use log::info;
