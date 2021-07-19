@@ -38,29 +38,29 @@ impl Proxy {
             .request_from(new_url.as_str(), req.head())
             .no_decompress();
 
-        println!("oi");
         client_req = if let Some(addr) = req.peer_addr() {
             client_req.append_header((HEADER_X_FORWARDED_FOR, format!("{}", addr.ip())))
         } else {
             client_req
         };
-        println!("oi");
         let id = Uuid::new_v4();
         client_req = client_req.append_header((HEADER_X_GASKET_REQUEST_ID, id.to_string()));
-        let mut res = client_req.send_body(body).await.unwrap();
-        println!("oi");
+        let mut res = match client_req.send_body(body).await {
+            Ok(res) => res,
+            Err(e) => {
+                return Ok(HttpResponse::InternalServerError().body(format!("{}", e)));
+            }
+        };
+
         let res_body = actix_web::dev::AnyBody::from(res.body().await.unwrap());
 
         let mut hrb = HttpResponse::build(res.status());
 
-        println!("oi");
-        // prune headers
         for (header_name, header_value) in res.headers().iter().filter(|(h, _)| *h != "connection")
         {
             hrb.append_header((header_name.clone(), header_value.clone()));
         }
         hrb.append_header((HEADER_X_GASKET_REQUEST_ID, id.to_string()));
-        println!("oi");
         let res_a = hrb.message_body(res_body).unwrap();
 
         return Ok(res_a);
