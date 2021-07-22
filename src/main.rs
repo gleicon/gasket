@@ -47,23 +47,28 @@ async fn main() -> std::io::Result<()> {
     let cmd = gasket_options.command.clone();
 
     info!("Starting process manager");
-    process_manager::StaticProcessManager::run(cmd).await;
+    let handle = process_manager::StaticProcessManager::run(cmd).await;
+
     match gasket_options.tls_cert {
         Some(cert_path) => info!("TLS Cert path: {:?}", cert_path),
         None => (),
     };
     info!("starting server");
 
-    HttpServer::new(move || {
+    let s = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(dest_port))
             .wrap(middleware::Logger::default())
             .default_service(web::route().to(forward))
     })
     .disable_signals()
-    .bind(listen_addr)?
+    .bind(listen_addr)
+    .unwrap()
     .run()
-    .await
+    .await;
+
+    handle.close();
+    s
 }
 
 async fn forward(
