@@ -45,11 +45,9 @@ async fn main() -> std::io::Result<()> {
     info!("Gasket --");
 
     let cmd = gasket_options.command.clone();
-    if cmd != "" {
-        info!("before spawn");
-        process_manager::StaticProcessManager::run(cmd).await;
-    };
 
+    info!("Starting process manager");
+    process_manager::StaticProcessManager::run(cmd).await;
     match gasket_options.tls_cert {
         Some(cert_path) => info!("TLS Cert path: {:?}", cert_path),
         None => (),
@@ -58,12 +56,11 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
-            // .app_data(forward_url.clone())
-            // .app_data(web::Data::new("127.0.0.1.to_string()"))
             .app_data(web::Data::new(dest_port))
             .wrap(middleware::Logger::default())
             .default_service(web::route().to(forward))
     })
+    .disable_signals()
     .bind(listen_addr)?
     .run()
     .await
@@ -73,8 +70,6 @@ async fn forward(
     req: HttpRequest,
     body: web::Bytes,
     dest_port: web::Data<u16>,
-    // dest_addr: web::Data<String>,
-    // url: web::Data<url::Url>,
 ) -> Result<HttpResponse, actix_web::Error> {
     info!("request");
     let dest_port = *dest_port.get_ref();

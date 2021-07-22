@@ -5,9 +5,9 @@ use std::process::Command;
 use std::sync::Arc;
 use std::thread;
 use std::time;
-use tokio::signal::unix::{signal, SignalKind};
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-//use tokio::sync::Mutex;
+use tokio::signal::unix::{signal, Signal, SignalKind};
+use tokio::time::{sleep, Duration};
+
 use std::sync::Mutex;
 
 pub struct StaticProcessManager {
@@ -25,12 +25,11 @@ impl StaticProcessManager {
         //-> Result<tokio::task::JoinHandle<()>, String> {
         let cmd = self.cmd.clone();
         if self.cmd != "" {
-            info!("Spawning: {}", cmd);
             println!("Spawning: {}", cmd);
             let ms = self.max_spawns.clone();
             let port = self.port.clone();
-            // // #![feature(async_closure)]
-            let task = actix_web::rt::task::spawn_blocking(move || {
+            //            let _task = actix_web::rt::task::spawn_blocking(move || {
+            let _task = std::thread::spawn(move || {
                 let arr_cmd: Vec<&str> = cmd.split_whitespace().collect();
                 let tx = self.pid_sender;
 
@@ -90,30 +89,63 @@ impl StaticProcessManager {
         };
 
         println!("PORT: {}, child PORT: {}", s.port, s.port + 1);
-        // println!("Installing signal handlers");
+        let sigchild_stream = signal(SignalKind::child()).unwrap();
+        let sigint_stream = signal(SignalKind::interrupt()).unwrap();
+        //let sigterm_stream = signal(SignalKind::terminate()).unwrap();
 
-        // let signals = Signals::new(&[SIGHUP, SIGTERM, SIGINT, SIGQUIT, SIGCHLD]).unwrap();
-        // let handle = signals.handle();
-        s.grim_reaper().await;
-        s.spawn_process();
-        // match s.spawn_process().await {
-        //     Ok(task) => task.await.unwrap(),
-        //     Err(e) => println!("{}", e),
-        // }
+        s.grim_reaper(sigchild_stream).await;
+        s.signals_handler(sigint_stream, "SIGINT".to_string()).await;
+        // s.signals_handler(sigterm_stream, "SIGTERM".to_string())
+        //     .await;
+
+        s.spawn_process(); // blocking process manager
     }
 
-    async fn grim_reaper(&mut self) -> tokio::task::JoinHandle<()> {
+    async fn grim_reaper(
+        &mut self,
+        mut sigchild_stream: tokio::signal::unix::Signal,
+    ) -> tokio::task::JoinHandle<()> {
         println!("Grim reaper activated");
 
         let rx = Arc::clone(&self.pid_receiver);
+        //let mut sigchild_stream = signal(SignalKind::child()).unwrap();
+
         let signal_task = actix_web::rt::spawn(async move {
-            let mut stream = signal(SignalKind::child()).unwrap(); //|| SignalKind::child())?;
             let mut lrx = rx.lock().unwrap();
 
             loop {
-                println!("Looping");
-                let evt = stream.recv().await;
-                println!("signal received: {:?} for pid: {:?}", evt, lrx.recv().await);
+                println!("Looping - chld");
+                sigchild_stream.recv().await;
+                println!("Looping - chld");
+
+                println!("sigchild received for pid: {:?}", lrx.recv().await);
+            }
+        });
+        signal_task
+    }
+
+    async fn signals_handler(
+        &mut self,
+        mut signal_stream: tokio::signal::unix::Signal,
+        signame: String,
+    ) -> tokio::task::JoinHandle<()> {
+        println!("SIGHANDLER for {} activated", signame);
+
+        let rx = Arc::clone(&self.pid_receiver);
+
+        let signal_task = actix_web::rt::spawn(async move {
+            let mut lrx = rx.lock().unwrap();
+
+            loop {
+                println!("Looping - {}", signame);
+                sleep(Duration::from_millis(1000)).await;
+                signal_stream.recv().await;
+                println!(
+                    "signal {} received, forwarding for pid: {:?}",
+                    signame,
+                    lrx.recv().await
+                );
+                std::process::exit(-1);
             }
         });
         signal_task
