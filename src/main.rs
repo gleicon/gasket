@@ -36,8 +36,6 @@ async fn main() -> std::io::Result<()> {
     // proxy settings
     // always bind to localhost, always proxy to localhost
     let listen_addr = format!("127.0.0.1:{}", port.to_string());
-    let destination_addr = SocketAddr::from(([127, 0, 0, 1], dest_port));
-    let forward_url = Url::parse(&format!("http://{}", destination_addr)).unwrap();
     let gasket_options = GasketOptions::parse();
 
     std::env::set_var("RUST_LOG", "actix_web=debug,actix_server=debug");

@@ -1,11 +1,9 @@
-use log::info;
 use std::convert::TryInto;
 use std::env;
 use std::process::Command;
 use std::sync::Arc;
 use std::thread;
 use std::time;
-use tokio::time::{sleep, Duration};
 
 use futures::stream::StreamExt;
 use signal_hook::consts::signal::*;
@@ -13,6 +11,7 @@ use signal_hook_tokio::Signals;
 
 use std::sync::Mutex;
 
+#[derive(Clone)]
 pub struct StaticProcessManager {
     pid_sender: Arc<Mutex<tokio::sync::mpsc::Sender<u32>>>,
     pid_receiver: Arc<Mutex<tokio::sync::mpsc::Receiver<u32>>>,
@@ -25,14 +24,14 @@ const MAX_SPAWNS: u32 = 5;
 
 impl StaticProcessManager {
     pub fn spawn_process(self: Self) {
-        //-> Result<tokio::task::JoinHandle<()>, String> {
         let cmd = self.cmd.clone();
+
         if self.cmd != "" {
             println!("Spawning: {}", cmd);
             let ms = self.max_spawns.clone();
             let port = self.port.clone();
-            //            let _task = actix_web::rt::task::spawn_blocking(move || {
-            let _task = std::thread::spawn(move || {
+            let _task = actix_web::rt::task::spawn_blocking(move || {
+                //let _task = std::thread::spawn(move || {
                 let arr_cmd: Vec<&str> = cmd.split_whitespace().collect();
                 let tx = self.pid_sender;
 
@@ -70,9 +69,7 @@ impl StaticProcessManager {
                     thread::sleep(cleanup_time);
                 }
             });
-            //  return Ok(task);
         };
-        //   Err("Error spawning process: empty command".to_string())
     }
 
     pub async fn run(cmd: String) -> signal_hook_tokio::Handle {
@@ -82,7 +79,7 @@ impl StaticProcessManager {
 
         let (tx, rx) = tokio::sync::mpsc::channel(10);
 
-        let mut s = Self {
+        let s = Self {
             self_pid: std::process::id(),
             pid_receiver: Arc::new(Mutex::new(rx)),
             pid_sender: Arc::new(Mutex::new(tx)),
@@ -96,32 +93,56 @@ impl StaticProcessManager {
 
         let handle = signals.handle();
 
-        s.signals_handler(signals).await;
+        s.clone().signals_handler(signals).await;
 
-        s.spawn_process(); // blocking process manager
+        s.clone().spawn_process(); // blocking process manager
         return handle;
     }
 
-    async fn signals_handler(&mut self, signals: Signals) -> tokio::task::JoinHandle<()> {
+    async fn grim_reaper(&mut self, pid_t: i32) -> tokio::task::JoinHandle<()> {
+        let signal_task = actix_web::rt::spawn(async move {
+            let mut st = 0;
+            loop {
+                let lpid = unsafe { libc::waitpid(-1, &mut st, libc::WNOHANG) };
+                println!("Capturing zombie {}", lpid);
+                if lpid == pid_t {
+                    return ();
+                } else if lpid <= 0 {
+                    break;
+                }
+            }
+            ()
+        });
+        signal_task
+    }
+
+    async fn signals_handler(mut self, signals: Signals) -> tokio::task::JoinHandle<()> {
         let rx = Arc::clone(&self.pid_receiver);
         let signal_task = actix_web::rt::spawn(async move {
             let mut signals = signals.fuse();
             while let Some(signal) = signals.next().await {
+                let pid = rx.lock().unwrap().recv().await.unwrap();
+                let pid_t: libc::pid_t = match pid.try_into() {
+                    Ok(x) => x,
+                    Err(_e) => -1,
+                };
+                self.grim_reaper(pid_t).await;
+                //GrimReaper::new().unwrap().reap(pid_t).await.unwrap();
                 match signal {
                     SIGCHLD => {
-                        println!("SIGCHLD {:?}", rx.lock().unwrap());
+                        println!("SIGCHLD captured");
                     }
-
                     SIGHUP => {
                         println!("SIGHUP");
-                        // Reload configuration
-                        // Reopen the log file
                     }
 
-                    SIGTERM | SIGINT | SIGQUIT => {
-                        // Shutdown the system;
-                        println!("SIGTERM");
-                    }
+                    SIGINT => unsafe {
+                        libc::kill(pid_t, libc::SIGINT);
+                    },
+
+                    SIGTERM | SIGQUIT => unsafe {
+                        libc::kill(pid_t, libc::SIGTERM);
+                    },
                     _ => unreachable!(),
                 }
             }
