@@ -8,6 +8,7 @@ use url::Url;
 
 mod http_utils;
 mod process_manager;
+mod tls_utils;
 
 #[derive(Clap, Debug)]
 #[clap(name = "gasket")]
@@ -20,6 +21,14 @@ struct GasketOptions {
     /// tls cert path
     #[clap(short = 'c', long = "cert")]
     tls_cert: Option<String>,
+
+    /// https(tls)
+    #[clap(short = 't', long = "tls")]
+    tls_enabled: bool,
+
+    /// https(mTLS)
+    #[clap(short = 'm', long = "mtls")]
+    mtls_enabled: bool,
 }
 
 #[actix_web::main]
@@ -38,19 +47,45 @@ async fn main() -> std::io::Result<()> {
     let listen_addr = format!("127.0.0.1:{}", port.to_string());
     let gasket_options = GasketOptions::parse();
 
-    std::env::set_var("RUST_LOG", "actix_web=debug,actix_server=debug");
+    std::env::set_var("RUST_LOG", "actix_web=info,actix_server=info,gasket=info");
     env_logger::init();
-    info!("Gasket --");
 
+    info!("Gasket --");
     let cmd = gasket_options.command.clone();
 
     info!("Starting process manager");
     let handle = process_manager::StaticProcessManager::run(cmd).await;
 
-    match gasket_options.tls_cert {
-        Some(cert_path) => info!("TLS Cert path: {:?}", cert_path),
-        None => (),
-    };
+    // mTLS supercedes tls (if mtls is enable -t/--tls is ignored)
+    if gasket_options.mtls_enabled {
+        info!("mTLS enabled");
+    } else if gasket_options.tls_enabled {
+        info!("TLS enabled");
+        match gasket_options.tls_cert {
+            Some(cert_path) => info!("TLS Cert path: {:?}", cert_path),
+            None => (),
+        };
+        // load ssl keys
+        let builder = tls_utils::CertificateManager::NewTLSBuilder(
+            "key.pem".to_string(),
+            "cert.pem".to_string(),
+        );
+        info!("Starting TLS server");
+
+        let s = HttpServer::new(move || {
+            App::new()
+                .app_data(web::Data::new(dest_port))
+                .wrap(middleware::Logger::default())
+                .default_service(web::route().to(forward))
+        })
+        .disable_signals()
+        .bind_openssl(listen_addr.clone(), builder.unwrap())
+        .unwrap()
+        .run()
+        .await;
+        return s;
+    }
+
     info!("starting server");
 
     let s = HttpServer::new(move || {
