@@ -55,23 +55,16 @@ async fn main() -> std::io::Result<()> {
 
     info!("Starting process manager");
     let handle = process_manager::StaticProcessManager::run(cmd).await;
-
     // mTLS supercedes tls (if mtls is enable -t/--tls is ignored)
+    // defaults to http server if none is set
     if gasket_options.mtls_enabled {
         info!("mTLS enabled");
-    } else if gasket_options.tls_enabled {
-        info!("TLS enabled");
-        match gasket_options.tls_cert {
-            Some(cert_path) => info!("TLS Cert path: {:?}", cert_path),
-            None => (),
-        };
-        // load ssl keys
-        let builder = tls_utils::CertificateManager::NewTLSBuilder(
-            "key.pem".to_string(),
-            "cert.pem".to_string(),
+        let builder = tls_utils::CertificateManager::new_mtls_builder(
+            "ca_lero".to_string(),
+            "ce lero".to_string(),
+            "nero.pem".to_string(),
         );
-        info!("Starting TLS server");
-
+        info!("Starting mTLS server");
         let s = HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(dest_port))
@@ -83,11 +76,35 @@ async fn main() -> std::io::Result<()> {
         .unwrap()
         .run()
         .await;
+        handle.close();
+        return s;
+    } else if gasket_options.tls_enabled {
+        info!("TLS enabled");
+        match gasket_options.tls_cert {
+            Some(cert_path) => info!("TLS Cert path: {:?}", cert_path),
+            None => (),
+        };
+        // load ssl keys
+        let builder = tls_utils::CertificateManager::new_tls_builder(
+            "key.pem".to_string(),
+            "cert.pem".to_string(),
+        );
+        info!("Starting TLS server");
+        let s = HttpServer::new(move || {
+            App::new()
+                .app_data(web::Data::new(dest_port))
+                .wrap(middleware::Logger::default())
+                .default_service(web::route().to(forward))
+        })
+        .disable_signals()
+        .bind_openssl(listen_addr.clone(), builder.unwrap())
+        .unwrap()
+        .run()
+        .await;
+        handle.close();
         return s;
     }
-
-    info!("starting server");
-
+    info!("Starting server");
     let s = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(dest_port))
