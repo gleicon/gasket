@@ -149,6 +149,7 @@ impl StaticProcessManager {
 
                     SIGTERM | SIGQUIT => unsafe {
                         libc::kill(pid_t, libc::SIGTERM);
+                        std::process::exit(-1);
                     },
                     _ => unreachable!(),
                 }

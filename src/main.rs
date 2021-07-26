@@ -32,7 +32,7 @@ struct GasketOptions {
     certificate_chain_path: Option<String>,
 
     /// client ca path pem for mTLS
-    #[clap(short = 'a', long = "clienc-ca")]
+    #[clap(short = 'a', long = "client-ca")]
     client_ca_path: Option<String>,
 
     /// https(tls)
@@ -60,7 +60,7 @@ async fn main() -> std::io::Result<()> {
     let listen_addr = format!("127.0.0.1:{}", port.to_string());
     let gasket_options = GasketOptions::parse();
 
-    std::env::set_var("RUST_LOG", "actix_web=info,actix_server=info,gasket=info");
+    std::env::set_var("RUST_LOG", "actix_web=debug,actix_server=debug,gasket=info");
     env_logger::init();
 
     info!("Gasket --");
@@ -88,12 +88,13 @@ async fn main() -> std::io::Result<()> {
 
         let client_ca_path = match gasket_options.client_ca_path {
             Some(cert_path) => {
-                info!("Certificate chain path: {:?}", cert_path);
+                info!("Client certificate path: {:?}", cert_path);
                 cert_path
             }
             None => "client_ca_path.pem".to_string(),
         };
         // mTLS builder
+
         let builder = tls_utils::CertificateManager::new_mtls_builder(
             private_key_path,
             certificate_chain_path,
