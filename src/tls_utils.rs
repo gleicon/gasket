@@ -13,7 +13,14 @@ impl CertificateManager {
         private_key_path: String,
         certificate_chain_path: String,
     ) -> Result<openssl::ssl::SslAcceptorBuilder, String> {
+        // https://wiki.mozilla.org/Security/Server_Side_TLS#Intermediate_compatibility_.28recommended.29
         let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+        builder
+            .set_min_proto_version(Some(SslVersion::SSL3))
+            .unwrap();
+
+        builder.set_session_cache_mode(SslSessionCacheMode::OFF);
+
         builder
             .set_private_key_file(private_key_path, SslFiletype::PEM)
             .unwrap();
@@ -31,12 +38,19 @@ impl CertificateManager {
         certificate_chain_path: String,
         client_ca_path: String,
     ) -> Result<openssl::ssl::SslAcceptorBuilder, std::io::Error> {
-        let mut builder = SslAcceptor::mozilla_modern(SslMethod::tls())?;
-        builder.set_min_proto_version(Some(SslVersion::SSL3))?;
+        let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+        builder
+            .set_min_proto_version(Some(SslVersion::SSL3))
+            .unwrap();
+
         builder.set_session_cache_mode(SslSessionCacheMode::OFF);
 
-        builder.set_private_key_file(private_key_path, SslFiletype::PEM)?;
-        builder.set_certificate_chain_file(certificate_chain_path)?;
+        builder
+            .set_private_key_file(private_key_path, SslFiletype::PEM)
+            .unwrap();
+        builder
+            .set_certificate_chain_file(certificate_chain_path)
+            .unwrap();
 
         let ca_cert = fs::read_to_string(client_ca_path)?.into_bytes();
         let client_ca_cert = X509::from_pem(&ca_cert)?;

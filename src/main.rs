@@ -10,6 +10,11 @@ mod http_utils;
 mod process_manager;
 mod tls_utils;
 
+/*
+    private_key_path: String,
+    certificate_chain_path: String,
+    client_ca_path: String,
+*/
 #[derive(Clap, Debug)]
 #[clap(name = "gasket")]
 #[clap(setting = AppSettings::ColoredHelp)]
@@ -18,9 +23,17 @@ struct GasketOptions {
     #[clap(short = 'e', long = "execute", default_value = "")]
     command: String,
 
-    /// tls cert path
-    #[clap(short = 'c', long = "cert")]
-    tls_cert: Option<String>,
+    /// private key cert
+    #[clap(short = 'p', long = "private-key")]
+    private_key_path: Option<String>,
+
+    /// certificate chain path cert
+    #[clap(short = 'c', long = "certificate-chain")]
+    certificate_chain_path: Option<String>,
+
+    /// client ca path pem for mTLS
+    #[clap(short = 'a', long = "clienc-ca")]
+    client_ca_path: Option<String>,
 
     /// https(tls)
     #[clap(short = 't', long = "tls")]
@@ -58,11 +71,33 @@ async fn main() -> std::io::Result<()> {
     // mTLS supercedes tls (if mtls is enable -t/--tls is ignored)
     // defaults to http server if none is set
     if gasket_options.mtls_enabled {
-        info!("mTLS enabled");
+        let private_key_path = match gasket_options.private_key_path {
+            Some(cert_path) => {
+                info!("Private key path: {:?}", cert_path);
+                cert_path
+            }
+            None => "private_key.crt".to_string(),
+        };
+        let certificate_chain_path = match gasket_options.certificate_chain_path {
+            Some(cert_path) => {
+                info!("Certificate chain path: {:?}", cert_path);
+                cert_path
+            }
+            None => "certificate_chain.crt".to_string(),
+        };
+
+        let client_ca_path = match gasket_options.client_ca_path {
+            Some(cert_path) => {
+                info!("Certificate chain path: {:?}", cert_path);
+                cert_path
+            }
+            None => "client_ca_path.pem".to_string(),
+        };
+        // mTLS builder, almost the same as TLS but w/ a 509x store and verify peers set to yes
         let builder = tls_utils::CertificateManager::new_mtls_builder(
-            "ca_lero".to_string(),
-            "ce lero".to_string(),
-            "nero.pem".to_string(),
+            private_key_path,
+            certificate_chain_path,
+            client_ca_path,
         );
         info!("Starting mTLS server");
         let s = HttpServer::new(move || {
@@ -79,15 +114,25 @@ async fn main() -> std::io::Result<()> {
         handle.close();
         return s;
     } else if gasket_options.tls_enabled {
-        info!("TLS enabled");
-        match gasket_options.tls_cert {
-            Some(cert_path) => info!("TLS Cert path: {:?}", cert_path),
-            None => (),
+        let private_key_path = match gasket_options.private_key_path {
+            Some(cert_path) => {
+                info!("Private key path: {:?}", cert_path);
+                cert_path
+            }
+            None => "private_key.crt".to_string(),
         };
-        // load ssl keys
+        let certificate_chain_path = match gasket_options.certificate_chain_path {
+            Some(cert_path) => {
+                info!("Certificate chain path: {:?}", cert_path);
+                cert_path
+            }
+            None => "certificate_chain.crt".to_string(),
+        };
+
+        // TLS Builder
         let builder = tls_utils::CertificateManager::new_tls_builder(
-            "key.pem".to_string(),
-            "cert.pem".to_string(),
+            private_key_path,
+            certificate_chain_path,
         );
         info!("Starting TLS server");
         let s = HttpServer::new(move || {
