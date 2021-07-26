@@ -93,7 +93,7 @@ async fn main() -> std::io::Result<()> {
             }
             None => "client_ca_path.pem".to_string(),
         };
-        // mTLS builder, almost the same as TLS but w/ a 509x store and verify peers set to yes
+        // mTLS builder
         let builder = tls_utils::CertificateManager::new_mtls_builder(
             private_key_path,
             certificate_chain_path,
