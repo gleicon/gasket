@@ -1,7 +1,6 @@
 use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Result};
 use clap::{AppSettings, Clap};
 use log::info;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use std::env;
@@ -56,8 +55,7 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or(3000);
     let dest_port = Arc::new(port + 1);
 
-    // proxy settings
-    // always bind to localhost, always proxy to localhost
+    // proxy settings: always bind to localhost, always proxy to localhost
     let listen_addr = format!("127.0.0.1:{}", port.to_string());
     let gasket_options = GasketOptions::parse();
 
@@ -94,8 +92,8 @@ async fn main() -> std::io::Result<()> {
             }
             None => "client_ca_path.pem".to_string(),
         };
-        // mTLS builder
 
+        // mTLS builder
         let builder = tls_utils::CertificateManager::new_mtls_builder(
             private_key_path,
             certificate_chain_path,
@@ -174,8 +172,7 @@ async fn forward(
     dest_port: web::Data<Arc<u16>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     info!("request");
-    let dest_port = dest_port.as_ref(); // ok().get_ref();
-                                        // let destination_addr = SocketAddr::from(([127, 0, 0, 1], dest_port));
+    let dest_port = dest_port.as_ref();
     let forward_url = Url::parse(&format!("http://127.0.0.1:{}", dest_port)).unwrap();
     http_utils::Proxy::forward(req, body, &forward_url).await
 }
