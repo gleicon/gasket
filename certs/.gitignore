@@ -1,0 +1,6 @@
+certificates/*
+client_certs/* 
+create_certs.txt
+old_mtls
+server.cert.pem
+server_certs
