@@ -95,7 +95,7 @@ impl StaticProcessManager {
             cmd: cmd,
         };
 
-        info!("Env vars: PORT: {}, child PORT: {}", s.port, s.port + 1);
+        info!("Spawn: env vars: PORT: {}", s.port);
         let signals = Signals::new(&[SIGHUP, SIGTERM, SIGINT, SIGQUIT, SIGCHLD]).unwrap();
 
         let handle = signals.handle();

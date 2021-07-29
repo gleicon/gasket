@@ -2,6 +2,7 @@ use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Res
 use clap::{AppSettings, Clap};
 use log::info;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use std::env;
 use url::Url;
@@ -50,10 +51,10 @@ async fn main() -> std::io::Result<()> {
     // Origin port is 3000, destination port will be 3001
     // Gasket increments the port by one based on the PORT env var
     // or defaults to port 3000
-    let port = env::var("PORT")
+    let port: u16 = env::var("PORT")
         .map(|s| s.parse().unwrap_or(3000))
         .unwrap_or(3000);
-    let dest_port = port + 1;
+    let dest_port = Arc::new(port + 1);
 
     // proxy settings
     // always bind to localhost, always proxy to localhost
@@ -103,7 +104,7 @@ async fn main() -> std::io::Result<()> {
         info!("Starting mTLS server");
         let s = HttpServer::new(move || {
             App::new()
-                .app_data(web::Data::new(dest_port))
+                .app_data(web::Data::new(dest_port.clone()))
                 .wrap(middleware::Logger::default())
                 .default_service(web::route().to(forward))
         })
@@ -138,7 +139,7 @@ async fn main() -> std::io::Result<()> {
         info!("Starting TLS server");
         let s = HttpServer::new(move || {
             App::new()
-                .app_data(web::Data::new(dest_port))
+                .app_data(web::Data::new(dest_port.clone()))
                 .wrap(middleware::Logger::default())
                 .default_service(web::route().to(forward))
         })
@@ -153,7 +154,7 @@ async fn main() -> std::io::Result<()> {
     info!("Starting server");
     let s = HttpServer::new(move || {
         App::new()
-            .app_data(web::Data::new(dest_port))
+            .app_data(web::Data::new(dest_port.clone()))
             .wrap(middleware::Logger::default())
             .default_service(web::route().to(forward))
     })
@@ -170,11 +171,11 @@ async fn main() -> std::io::Result<()> {
 async fn forward(
     req: HttpRequest,
     body: web::Bytes,
-    dest_port: web::Data<u16>,
+    dest_port: web::Data<Arc<u16>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     info!("request");
-    let dest_port = *dest_port.get_ref();
-    let destination_addr = SocketAddr::from(([127, 0, 0, 1], dest_port));
-    let forward_url = Url::parse(&format!("http://{}", destination_addr)).unwrap();
+    let dest_port = dest_port.as_ref(); // ok().get_ref();
+                                        // let destination_addr = SocketAddr::from(([127, 0, 0, 1], dest_port));
+    let forward_url = Url::parse(&format!("http://127.0.0.1:{}", dest_port)).unwrap();
     http_utils::Proxy::forward(req, body, &forward_url).await
 }
