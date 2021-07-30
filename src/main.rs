@@ -101,6 +101,7 @@ async fn main() -> std::io::Result<()> {
             Ok(b) => b,
             Err(e) => {
                 info!("mTLS Abort: {}", e);
+                handle.close();
                 std::process::exit(-1);
                 //return Err(e);
             }
@@ -144,6 +145,7 @@ async fn main() -> std::io::Result<()> {
             Ok(b) => b,
             Err(e) => {
                 info!("TLS Abort: {}", e);
+                handle.close();
                 std::process::exit(-1);
 
                 //return Err(e);
