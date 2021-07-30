@@ -1,3 +1,4 @@
+use log::info;
 use std::convert::TryInto;
 use std::env;
 use std::process::Command;
@@ -27,7 +28,7 @@ impl StaticProcessManager {
         let cmd = self.cmd.clone();
 
         if self.cmd != "" {
-            println!("Spawning: {}", cmd);
+            info!("Spawning: {}", cmd);
             let ms = self.max_spawns.clone();
             let port = self.port.clone();
             let _task = actix_web::rt::task::spawn_blocking(move || {
@@ -40,12 +41,18 @@ impl StaticProcessManager {
                 let cleanup_time = time::Duration::from_secs(1);
                 let mut respawn_counter = 0;
                 loop {
-                    let mut child = Command::new(cmd)
+                    let mut child = match Command::new(cmd)
                         .args(&arr_cmd[1..arr_cmd.len()])
                         .env("PORT", port.to_string())
                         .spawn()
-                        .unwrap();
-                    println!("Spawning new process: {}", child.id());
+                    {
+                        Ok(child) => child,
+                        Err(e) => {
+                            info!("Error: {}: {} - exiting", cmd, e);
+                            std::process::exit(-1);
+                        }
+                    };
+                    info!("Spawned process pid: {}", child.id());
 
                     tx.lock()
                         .unwrap()
@@ -54,18 +61,18 @@ impl StaticProcessManager {
 
                     match child.wait() {
                         Ok(c) => match c.code() {
-                            Some(code) => println!("Process exited with status code: {}", code),
-                            None => println!("Process terminated by signal"),
+                            Some(code) => info!("Process exited with status code: {}", code),
+                            None => info!("Process terminated by signal"),
                         },
-                        Err(e) => println!("{}", e),
+                        Err(e) => info!("{}", e),
                     }
 
                     respawn_counter = respawn_counter + 1;
                     if respawn_counter > ms {
-                        println!("Process spawning too much, aborting gasket");
+                        info!("Process spawning too much, aborting gasket");
                         std::process::exit(-1);
                     }
-                    println!("sleeping before respawn {}", respawn_counter);
+                    info!("Sleeping before respawn {}", respawn_counter);
                     thread::sleep(cleanup_time);
                 }
             });
@@ -88,7 +95,7 @@ impl StaticProcessManager {
             cmd: cmd,
         };
 
-        println!("PORT: {}, child PORT: {}", s.port, s.port + 1);
+        info!("Spawn: env vars: PORT: {}", s.port);
         let signals = Signals::new(&[SIGHUP, SIGTERM, SIGINT, SIGQUIT, SIGCHLD]).unwrap();
 
         let handle = signals.handle();
@@ -104,7 +111,7 @@ impl StaticProcessManager {
             let mut st = 0;
             loop {
                 let lpid = unsafe { libc::waitpid(-1, &mut st, libc::WNOHANG) };
-                println!("Capturing zombie {}", lpid);
+                info!("Capturing zombie {}", lpid);
                 if lpid == pid_t {
                     return ();
                 } else if lpid <= 0 {
@@ -130,10 +137,10 @@ impl StaticProcessManager {
                 //GrimReaper::new().unwrap().reap(pid_t).await.unwrap();
                 match signal {
                     SIGCHLD => {
-                        println!("SIGCHLD captured");
+                        info!("SIGCHLD captured");
                     }
                     SIGHUP => {
-                        println!("SIGHUP");
+                        info!("SIGHUP");
                     }
 
                     SIGINT => unsafe {
@@ -142,6 +149,7 @@ impl StaticProcessManager {
 
                     SIGTERM | SIGQUIT => unsafe {
                         libc::kill(pid_t, libc::SIGTERM);
+                        std::process::exit(-1);
                     },
                     _ => unreachable!(),
                 }
