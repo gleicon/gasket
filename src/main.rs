@@ -1,9 +1,8 @@
 use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Result};
 use clap::{AppSettings, Clap};
 use log::info;
-use std::sync::Arc;
-
 use std::env;
+use std::sync::Arc;
 use url::Url;
 
 mod http_utils;
@@ -75,14 +74,14 @@ async fn main() -> std::io::Result<()> {
                 info!("Private key path: {:?}", cert_path);
                 cert_path
             }
-            None => "private_key.crt".to_string(),
+            None => "private_key.pem".to_string(),
         };
         let certificate_chain_path = match gasket_options.certificate_chain_path {
             Some(cert_path) => {
                 info!("Certificate chain path: {:?}", cert_path);
                 cert_path
             }
-            None => "certificate_chain.crt".to_string(),
+            None => "certificate_chain.pem".to_string(),
         };
 
         let client_ca_path = match gasket_options.client_ca_path {
@@ -90,15 +89,23 @@ async fn main() -> std::io::Result<()> {
                 info!("Client certificate path: {:?}", cert_path);
                 cert_path
             }
-            None => "client_ca_path.pem".to_string(),
+            None => "client_cert_path.pem".to_string(),
         };
 
         // mTLS builder
-        let builder = tls_utils::CertificateManager::new_mtls_builder(
+        let builder = match tls_utils::CertificateManager::new_mtls_builder(
             private_key_path,
             certificate_chain_path,
             client_ca_path,
-        );
+        ) {
+            Ok(b) => b,
+            Err(e) => {
+                info!("mTLS Abort: {}", e);
+                std::process::exit(-1);
+                //return Err(e);
+            }
+        };
+
         info!("Starting mTLS server");
         let s = HttpServer::new(move || {
             App::new()
@@ -107,7 +114,7 @@ async fn main() -> std::io::Result<()> {
                 .default_service(web::route().to(forward))
         })
         .disable_signals()
-        .bind_openssl(listen_addr.clone(), builder.unwrap())
+        .bind_openssl(listen_addr.clone(), builder)
         .unwrap()
         .run()
         .await;
@@ -119,7 +126,7 @@ async fn main() -> std::io::Result<()> {
                 info!("Private key path: {:?}", cert_path);
                 cert_path
             }
-            None => "private_key.crt".to_string(),
+            None => "private_key.pem".to_string(),
         };
         let certificate_chain_path = match gasket_options.certificate_chain_path {
             Some(cert_path) => {
@@ -130,10 +137,18 @@ async fn main() -> std::io::Result<()> {
         };
 
         // TLS Builder
-        let builder = tls_utils::CertificateManager::new_tls_builder(
+        let builder = match tls_utils::CertificateManager::new_tls_builder(
             private_key_path,
             certificate_chain_path,
-        );
+        ) {
+            Ok(b) => b,
+            Err(e) => {
+                info!("TLS Abort: {}", e);
+                std::process::exit(-1);
+
+                //return Err(e);
+            }
+        };
         info!("Starting TLS server");
         let s = HttpServer::new(move || {
             App::new()
@@ -142,7 +157,7 @@ async fn main() -> std::io::Result<()> {
                 .default_service(web::route().to(forward))
         })
         .disable_signals()
-        .bind_openssl(listen_addr.clone(), builder.unwrap())
+        .bind_openssl(listen_addr.clone(), builder)
         .unwrap()
         .run()
         .await;
