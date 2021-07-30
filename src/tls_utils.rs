@@ -47,6 +47,7 @@ impl CertificateManager {
         // build client certificate store
         let mut builder =
             CertificateManager::new_tls_builder(private_key_path, certificate_chain_path).unwrap();
+
         let ca_cert = fs::read_to_string(client_ca_path)?.into_bytes();
         let client_ca_cert = X509::from_pem(&ca_cert)?;
         let mut x509_client_store_builder = X509StoreBuilder::new()?;
