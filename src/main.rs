@@ -41,6 +41,14 @@ struct GasketOptions {
     /// https(mTLS)
     #[clap(short = 'm', long = "mtls")]
     mtls_enabled: bool,
+
+    /// throttling
+    #[clap(short = 'r', long = "throttling")]
+    throttling_enabled: bool,
+
+    /// circuit breaker
+    #[clap(short = 'b', long = "circuitbreaker")]
+    circuitbreaker_enabled: bool,
 }
 
 #[actix_web::main]
