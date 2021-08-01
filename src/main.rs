@@ -7,6 +7,7 @@ use url::Url;
 
 mod http_utils;
 mod process_manager;
+mod stability_patterns;
 mod tls_utils;
 
 /*
