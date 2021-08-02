@@ -11,9 +11,10 @@ mod stability_patterns;
 mod tls_utils;
 
 /*
-    private_key_path: String,
-    certificate_chain_path: String,
-    client_ca_path: String,
+    certificates (TLS and mTLS)
+    - private_key_path: String,
+    - certificate_chain_path: String,
+    - client_ca_path: String,
 */
 #[derive(Clap, Debug)]
 #[clap(name = "gasket")]
@@ -112,7 +113,6 @@ async fn main() -> std::io::Result<()> {
                 info!("mTLS Abort: {}", e);
                 handle.close();
                 std::process::exit(-1);
-                //return Err(e);
             }
         };
 
@@ -156,8 +156,6 @@ async fn main() -> std::io::Result<()> {
                 info!("TLS Abort: {}", e);
                 handle.close();
                 std::process::exit(-1);
-
-                //return Err(e);
             }
         };
         info!("Starting TLS server");
