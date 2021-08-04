@@ -1,4 +1,5 @@
 use actix_web::{HttpRequest, HttpResponse};
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 const HEADER_X_FORWARDED_FOR: &str = "x-forwarded-for";
@@ -28,7 +29,24 @@ impl Proxy {
         req: HttpRequest,
         body: actix_web::web::Bytes,
         url: &url::Url,
+        sp: Arc<Mutex<crate::stability_patterns::StabilityPatterns>>,
     ) -> actix_web::Result<actix_web::HttpResponse> {
+        // create an exponential backoff for the URL Path
+        let to = sp
+            .lock()
+            .unwrap()
+            .exponential_backoff(url.path().to_string());
+        // connector w/ timeout
+        let connector = awc::Connector::new()
+            // This is the timeout setting for connector. It's 1 second by default
+            .timeout(
+                sp.lock()
+                    .unwrap()
+                    .next_backoff(url.path().to_string())
+                    .to_std()
+                    .unwrap(),
+            )
+            .finish();
         let client = awc::Client::new();
         let mut new_url = url.clone();
 

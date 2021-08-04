@@ -7,29 +7,29 @@ use std::sync::{Arc, Mutex};
 // Circuit Breaker: once max_tries with errors are reached, trip and interrupt the circuit. it can be reset
 // Exponential Backoff: exponentially increses Timeout for each retry
 
-struct CircuitBreaker {
+pub struct CircuitBreaker {
     error_count: u16,
     max_trips: u16,
     last_error: DateTime<Local>,
     created_at: DateTime<Local>,
 }
 
-struct Throttler {
+pub struct Throttler {
     max_requests: i32,
     current_requests: i32,
     last_request: DateTime<Local>,
     time_window: Duration,
 }
 
-struct ExponentialBackoff {
+pub struct ExponentialBackoff {
     current_timeout: Duration,
     requests: i32,
 }
 
 pub struct StabilityPatterns {
-    circuitbreakers: Arc<Mutex<HashMap<String, CircuitBreaker>>>,
-    throttlers: Arc<Mutex<HashMap<String, Throttler>>>,
-    backoffs: Arc<Mutex<HashMap<String, ExponentialBackoff>>>,
+    pub circuitbreakers: Arc<Mutex<HashMap<String, CircuitBreaker>>>,
+    pub throttlers: Arc<Mutex<HashMap<String, Throttler>>>,
+    pub backoffs: Arc<Mutex<HashMap<String, ExponentialBackoff>>>,
 }
 
 impl CircuitBreaker {
