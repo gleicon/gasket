@@ -1,4 +1,5 @@
 use chrono::{DateTime, Duration, Local};
+use log::info;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -21,9 +22,12 @@ pub struct Throttler {
     time_window: Duration,
 }
 
+#[derive(Clone, Copy)]
 pub struct ExponentialBackoff {
     current_timeout: Duration,
     requests: i32,
+    max_timeout: Duration,
+    max_requests: i32,
 }
 
 pub struct StabilityPatterns {
@@ -84,7 +88,13 @@ impl ExponentialBackoff {
         Self {
             current_timeout: Duration::milliseconds(100),
             requests: 0,
+            max_timeout: Duration::seconds(60), // hardcoded 60s ceiling
+            max_requests: 50, // arbitrary upper limit before resetting (or failing for good)
         }
+    }
+
+    fn current(&mut self) -> Duration {
+        self.current_timeout
     }
 
     fn next(&mut self) -> Duration {
@@ -92,11 +102,27 @@ impl ExponentialBackoff {
         if self.requests == 0 {
             self.current_timeout = Duration::milliseconds(100);
         } else {
-            self.current_timeout = self.current_timeout
+            // cap to max_timeout
+            let to = self.current_timeout
                 + Duration::milliseconds((base.powi(self.requests) * 10.0) as i64);
+
+            if to > self.max_timeout {
+                self.current_timeout = self.max_timeout
+            } else {
+                self.current_timeout = to
+            }
         }
         self.requests += 1;
         self.current_timeout
+    }
+    // next but resets after max_requests
+    // be careful
+    fn next_with_reset(&mut self) -> Duration {
+        let d = self.next();
+        if self.requests > self.max_requests {
+            self.reset()
+        }
+        d
     }
 
     fn reset(&mut self) {
@@ -153,12 +179,37 @@ impl StabilityPatterns {
     }
 
     pub fn exponential_backoff(&mut self, name: String) {
-        let eb = ExponentialBackoff::new();
-        self.backoffs.lock().unwrap().insert(name, eb);
+        if !self.backoffs.lock().unwrap().contains_key(&name.clone()) {
+            let eb = ExponentialBackoff::new();
+            self.backoffs.lock().unwrap().insert(name, eb);
+        }
     }
 
     pub fn next_backoff(&mut self, name: String) -> Duration {
-        self.backoffs.lock().unwrap().get_mut(&name).unwrap().next()
+        info!("backing off");
+        match self.backoffs.lock().unwrap().get_mut(&name.clone()) {
+            Some(q) => {
+                let n = q.next();
+                info!("backing off for {}: {} - {:?}", name.clone(), q.requests, n);
+                n
+            }
+            None => {
+                info!(
+                    "backing off for {} with 5s Duration (bypassing backoff)",
+                    name.clone(),
+                );
+                Duration::seconds(5) // default http client timeout
+            }
+        }
+    }
+
+    pub fn current_timeout(&mut self, name: String) -> Duration {
+        self.backoffs
+            .lock()
+            .unwrap()
+            .get_mut(&name)
+            .unwrap()
+            .current()
     }
 
     pub fn reset_backoff(&mut self, name: String) {

@@ -9,7 +9,7 @@ pub async fn forward(
     dest_port: web::Data<Arc<u16>>,
     sp: web::Data<Arc<Mutex<crate::stability_patterns::StabilityPatterns>>>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    info!("request");
+    info!("request proxy");
     let dest_port = dest_port.as_ref();
     let sp = sp.as_ref();
     let forward_url = Url::parse(&format!("http://127.0.0.1:{}", dest_port)).unwrap();

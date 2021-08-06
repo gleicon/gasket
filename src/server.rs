@@ -121,6 +121,7 @@ pub async fn http_server(
             .default_service(web::route().to(crate::proxy::forward))
     })
     .disable_signals()
+    .workers(12)
     .bind(listen_addr)
     .unwrap()
     .run()
