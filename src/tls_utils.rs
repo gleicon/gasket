@@ -12,7 +12,7 @@ impl CertificateManager {
     pub fn new_tls_builder(
         private_key_path: String,
         certificate_chain_path: String,
-    ) -> Result<openssl::ssl::SslAcceptorBuilder, String> {
+    ) -> Result<openssl::ssl::SslAcceptorBuilder, std::io::Error> {
         // https://wiki.mozilla.org/Security/Server_Side_TLS#Intermediate_compatibility_.28recommended.29
         let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
         builder
@@ -24,10 +24,11 @@ impl CertificateManager {
         builder
             .set_private_key_file(private_key_path, SslFiletype::PEM)
             .unwrap();
-        builder
-            .set_certificate_chain_file(certificate_chain_path)
-            .unwrap();
-        Ok(builder)
+        match builder.set_certificate_chain_file(certificate_chain_path) {
+            Ok(_b) => return Ok(builder),
+            Err(e) => return Err(e.into()), //Err(format!("{}", e)),
+        };
+        //Ok(builder)
     }
 
     // "ca/server/client-ssl.key"
@@ -46,7 +47,10 @@ impl CertificateManager {
 
         // build client certificate store
         let mut builder =
-            CertificateManager::new_tls_builder(private_key_path, certificate_chain_path).unwrap();
+            match CertificateManager::new_tls_builder(private_key_path, certificate_chain_path) {
+                Ok(b) => b,
+                Err(e) => return Err(e.into()),
+            };
 
         let ca_cert = fs::read_to_string(client_ca_path)?.into_bytes();
         let client_ca_cert = X509::from_pem(&ca_cert)?;

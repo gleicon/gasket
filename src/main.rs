@@ -1,24 +1,25 @@
-use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Result};
 use clap::{AppSettings, Clap};
 use log::info;
-use std::sync::Arc;
-
 use std::env;
-use url::Url;
+use std::sync::Arc;
 
 mod http_utils;
 mod process_manager;
+mod proxy;
+mod server;
+mod stability_patterns;
 mod tls_utils;
 
 /*
-    private_key_path: String,
-    certificate_chain_path: String,
-    client_ca_path: String,
+    certificates (TLS and mTLS)
+    - private_key_path: String,
+    - certificate_chain_path: String,
+    - client_ca_path: String,
 */
 #[derive(Clap, Debug)]
 #[clap(name = "gasket")]
 #[clap(setting = AppSettings::ColoredHelp)]
-struct GasketOptions {
+pub struct GasketOptions {
     /// command to be executed
     #[clap(short = 'e', long = "execute", default_value = "")]
     command: String,
@@ -42,6 +43,18 @@ struct GasketOptions {
     /// https(mTLS)
     #[clap(short = 'm', long = "mtls")]
     mtls_enabled: bool,
+
+    /// throttling
+    #[clap(short = 'r', long = "throttling")]
+    throttling_enabled: bool,
+
+    /// circuit breaker
+    #[clap(short = 'b', long = "circuitbreaker")]
+    circuitbreaker_enabled: bool,
+
+    /// exponential backoff
+    #[clap(short = 'k', long = "backoff")]
+    backoff_enabled: bool,
 }
 
 #[actix_web::main]
@@ -70,109 +83,15 @@ async fn main() -> std::io::Result<()> {
     // mTLS supercedes tls (if mtls is enable -t/--tls is ignored)
     // defaults to http server if none is set
     if gasket_options.mtls_enabled {
-        let private_key_path = match gasket_options.private_key_path {
-            Some(cert_path) => {
-                info!("Private key path: {:?}", cert_path);
-                cert_path
-            }
-            None => "private_key.crt".to_string(),
-        };
-        let certificate_chain_path = match gasket_options.certificate_chain_path {
-            Some(cert_path) => {
-                info!("Certificate chain path: {:?}", cert_path);
-                cert_path
-            }
-            None => "certificate_chain.crt".to_string(),
-        };
-
-        let client_ca_path = match gasket_options.client_ca_path {
-            Some(cert_path) => {
-                info!("Client certificate path: {:?}", cert_path);
-                cert_path
-            }
-            None => "client_ca_path.pem".to_string(),
-        };
-
-        // mTLS builder
-        let builder = tls_utils::CertificateManager::new_mtls_builder(
-            private_key_path,
-            certificate_chain_path,
-            client_ca_path,
-        );
-        info!("Starting mTLS server");
-        let s = HttpServer::new(move || {
-            App::new()
-                .app_data(web::Data::new(dest_port.clone()))
-                .wrap(middleware::Logger::default())
-                .default_service(web::route().to(forward))
-        })
-        .disable_signals()
-        .bind_openssl(listen_addr.clone(), builder.unwrap())
-        .unwrap()
-        .run()
-        .await;
+        let s = server::mtls_server(gasket_options, dest_port, listen_addr).await;
         handle.close();
         return s;
     } else if gasket_options.tls_enabled {
-        let private_key_path = match gasket_options.private_key_path {
-            Some(cert_path) => {
-                info!("Private key path: {:?}", cert_path);
-                cert_path
-            }
-            None => "private_key.crt".to_string(),
-        };
-        let certificate_chain_path = match gasket_options.certificate_chain_path {
-            Some(cert_path) => {
-                info!("Certificate chain path: {:?}", cert_path);
-                cert_path
-            }
-            None => "certificate_chain.crt".to_string(),
-        };
-
-        // TLS Builder
-        let builder = tls_utils::CertificateManager::new_tls_builder(
-            private_key_path,
-            certificate_chain_path,
-        );
-        info!("Starting TLS server");
-        let s = HttpServer::new(move || {
-            App::new()
-                .app_data(web::Data::new(dest_port.clone()))
-                .wrap(middleware::Logger::default())
-                .default_service(web::route().to(forward))
-        })
-        .disable_signals()
-        .bind_openssl(listen_addr.clone(), builder.unwrap())
-        .unwrap()
-        .run()
-        .await;
+        let s = server::tls_server(gasket_options, dest_port, listen_addr).await;
         handle.close();
         return s;
     }
-    info!("Starting server");
-    let s = HttpServer::new(move || {
-        App::new()
-            .app_data(web::Data::new(dest_port.clone()))
-            .wrap(middleware::Logger::default())
-            .default_service(web::route().to(forward))
-    })
-    .disable_signals()
-    .bind(listen_addr)
-    .unwrap()
-    .run()
-    .await;
-
+    let s = server::http_server(gasket_options, dest_port, listen_addr).await;
     handle.close();
-    s
-}
-
-async fn forward(
-    req: HttpRequest,
-    body: web::Bytes,
-    dest_port: web::Data<Arc<u16>>,
-) -> Result<HttpResponse, actix_web::Error> {
-    info!("request");
-    let dest_port = dest_port.as_ref();
-    let forward_url = Url::parse(&format!("http://127.0.0.1:{}", dest_port)).unwrap();
-    http_utils::Proxy::forward(req, body, &forward_url).await
+    return s;
 }

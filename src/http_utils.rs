@@ -1,4 +1,5 @@
 use actix_web::{HttpRequest, HttpResponse};
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 const HEADER_X_FORWARDED_FOR: &str = "x-forwarded-for";
@@ -28,7 +29,24 @@ impl Proxy {
         req: HttpRequest,
         body: actix_web::web::Bytes,
         url: &url::Url,
+        sp: Arc<Mutex<crate::stability_patterns::StabilityPatterns>>,
     ) -> actix_web::Result<actix_web::HttpResponse> {
+        // create an exponential backoff for the URL Path of ot does not exists
+        let backoff_key = req.uri().path().to_string().clone();
+        sp.lock().unwrap().exponential_backoff(backoff_key.clone());
+        // // connector w/ timeout
+
+        let to = sp
+            .lock()
+            .unwrap()
+            .current_timeout(backoff_key.clone())
+            .to_std()
+            .unwrap();
+        // let connector = awc::Connector::new()
+        //     // This is the timeout setting for connector. It's 1 second by default
+        //     .timeout(to.clone())
+        //     .finish();
+
         let client = awc::Client::new();
         let mut new_url = url.clone();
 
@@ -38,16 +56,28 @@ impl Proxy {
             .request_from(new_url.as_str(), req.head())
             .no_decompress();
 
+        // timeout increases on failures to avoid slowdowns
+        client_req = client_req.timeout(to);
+
         client_req = if let Some(addr) = req.peer_addr() {
             client_req.append_header((HEADER_X_FORWARDED_FOR, format!("{}", addr.ip())))
         } else {
             client_req
         };
+        // stamp unique id
         let id = Uuid::new_v4();
         client_req = client_req.append_header((HEADER_X_GASKET_REQUEST_ID, id.to_string()));
+
         let mut res = match client_req.send_body(body).await {
             Ok(res) => res,
             Err(e) => {
+                // increments timeout
+                let _ = sp
+                    .lock()
+                    .unwrap()
+                    .next_backoff(backoff_key)
+                    .to_std()
+                    .unwrap();
                 return Ok(HttpResponse::InternalServerError().body(format!("{}", e)));
             }
         };

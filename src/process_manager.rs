@@ -54,10 +54,14 @@ impl StaticProcessManager {
                     };
                     info!("Spawned process pid: {}", child.id());
 
-                    tx.lock()
+                    match tx
+                        .lock()
                         .unwrap()
                         .blocking_send((child.id()).try_into().unwrap())
-                        .unwrap(); // TODO: capture the error
+                    {
+                        Ok(_) => info!("{}", child.id()),
+                        Err(e) => info!("Error {}", e),
+                    }
 
                     match child.wait() {
                         Ok(c) => match c.code() {
