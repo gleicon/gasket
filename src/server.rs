@@ -29,7 +29,9 @@ pub async fn mtls_server(
         }
         None => "client_cert_path.pem".to_string(),
     };
-
+    let sp = Arc::new(Mutex::new(
+        crate::stability_patterns::StabilityPatterns::new(),
+    ));
     // mTLS builder
     let builder = match crate::tls_utils::CertificateManager::new_mtls_builder(
         private_key_path,
@@ -47,10 +49,12 @@ pub async fn mtls_server(
     let s = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(dest_port.clone()))
+            .app_data(web::Data::new(sp.clone()))
             .wrap(middleware::Logger::default())
             .default_service(web::route().to(crate::proxy::forward))
     })
     .disable_signals()
+    .workers(12)
     .bind_openssl(listen_addr.clone(), builder)
     .unwrap()
     .run()
@@ -89,14 +93,21 @@ pub async fn tls_server(
             std::process::exit(-1);
         }
     };
+
+    let sp = Arc::new(Mutex::new(
+        crate::stability_patterns::StabilityPatterns::new(),
+    ));
+
     info!("Starting TLS server");
     let s = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(dest_port.clone()))
+            .app_data(web::Data::new(sp.clone()))
             .wrap(middleware::Logger::default())
             .default_service(web::route().to(crate::proxy::forward))
     })
     .disable_signals()
+    .workers(12)
     .bind_openssl(listen_addr.clone(), builder)
     .unwrap()
     .run()
