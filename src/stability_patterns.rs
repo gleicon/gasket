@@ -3,23 +3,20 @@ use log::info;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use actix_web::middleware::{ErrorHandlerResponse, ErrorHandlers};
+use actix_web::{dev, http, HttpResponse, Result};
+
 // Stability patterns:
 // Throttling: Ensure only max_requests can happen on a given timewindow
 // Circuit Breaker: once max_tries with errors are reached, trip and interrupt the circuit. it can be reset
 // Exponential Backoff: exponentially increses Timeout for each retry
 
+#[derive(Clone, Copy)]
 pub struct CircuitBreaker {
     error_count: u16,
     max_trips: u16,
     last_error: DateTime<Local>,
     created_at: DateTime<Local>,
-}
-
-pub struct Throttler {
-    max_requests: i32,
-    current_requests: i32,
-    last_request: DateTime<Local>,
-    time_window: Duration,
 }
 
 #[derive(Clone, Copy)]
@@ -32,7 +29,6 @@ pub struct ExponentialBackoff {
 
 pub struct StabilityPatterns {
     pub circuitbreakers: Arc<Mutex<HashMap<String, CircuitBreaker>>>,
-    pub throttlers: Arc<Mutex<HashMap<String, Throttler>>>,
     pub backoffs: Arc<Mutex<HashMap<String, ExponentialBackoff>>>,
 }
 
@@ -59,25 +55,10 @@ impl CircuitBreaker {
     fn reset(&mut self) {
         self.error_count = 0;
     }
-}
 
-impl Throttler {
-    fn new(limit: i32, time_window: Duration) -> Self {
-        Self {
-            max_requests: limit,
-            current_requests: 0,
-            last_request: Local::now(),
-            time_window,
-        }
-    }
-    fn check(&mut self) -> bool {
-        if (self.last_request - Local::now()) < self.time_window {
-            self.current_requests += 1;
-            if self.current_requests > self.max_requests {
-                return false;
-            }
-        } else {
-            self.current_requests = 1;
+    fn status(&mut self) -> bool {
+        if self.error_count > self.max_trips {
+            return false;
         }
         return true;
     }
@@ -135,7 +116,6 @@ impl StabilityPatterns {
     pub fn new() -> Self {
         let s = Self {
             circuitbreakers: Arc::new(Mutex::new(HashMap::new())),
-            throttlers: Arc::new(Mutex::new(HashMap::new())),
             backoffs: Arc::new(Mutex::new(HashMap::new())),
         };
         return s;
@@ -147,12 +127,45 @@ impl StabilityPatterns {
     }
 
     pub fn trip(&mut self, name: String) -> bool {
+        if !self
+            .circuitbreakers
+            .lock()
+            .unwrap()
+            .contains_key(&name.clone())
+        {
+            let cb = CircuitBreaker::new(10); // arbitrary max trips
+            self.circuitbreakers
+                .lock()
+                .unwrap()
+                .insert(name.clone(), cb);
+        }
         self.circuitbreakers
             .lock()
             .unwrap()
             .get_mut(&name)
             .unwrap()
             .trip()
+    }
+
+    pub fn check_cb_status(&mut self, name: String) -> bool {
+        if !self
+            .circuitbreakers
+            .lock()
+            .unwrap()
+            .contains_key(&name.clone())
+        {
+            let cb = CircuitBreaker::new(10); // arbitrary max trips
+            self.circuitbreakers
+                .lock()
+                .unwrap()
+                .insert(name.clone(), cb);
+        }
+        self.circuitbreakers
+            .lock()
+            .unwrap()
+            .get_mut(&name)
+            .unwrap()
+            .status()
     }
 
     pub fn reset(&mut self, name: String) {
@@ -164,20 +177,6 @@ impl StabilityPatterns {
             .reset()
     }
 
-    pub fn throttler(&mut self, name: String, limit: i32, time_window: Duration) {
-        let tt = Throttler::new(limit, time_window);
-        self.throttlers.lock().unwrap().insert(name, tt);
-    }
-
-    pub fn throttle(&mut self, name: String) -> bool {
-        self.throttlers
-            .lock()
-            .unwrap()
-            .get_mut(&name)
-            .unwrap()
-            .check()
-    }
-
     pub fn exponential_backoff(&mut self, name: String) {
         if !self.backoffs.lock().unwrap().contains_key(&name.clone()) {
             let eb = ExponentialBackoff::new();
@@ -186,7 +185,6 @@ impl StabilityPatterns {
     }
 
     pub fn next_backoff(&mut self, name: String) -> Duration {
-        info!("backing off");
         match self.backoffs.lock().unwrap().get_mut(&name.clone()) {
             Some(q) => {
                 let n = q.next();

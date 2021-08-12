@@ -1,9 +1,10 @@
 use actix_web::{HttpRequest, HttpResponse};
+use log::info;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-const HEADER_X_FORWARDED_FOR: &str = "x-forwarded-for";
-const HEADER_X_GASKET_REQUEST_ID: &str = "x-gasket-request-id";
+const HEADER_X_FORWARDED_FOR: &str = "X-FORWARDED-FOR";
+const HEADER_X_GASKET_REQUEST_ID: &str = "X-GASKET-REQUEST-ID";
 
 // const HOP_BY_HOP_HEADERS: Vec<&str> = vec![
 //     "connection",
@@ -30,11 +31,21 @@ impl Proxy {
         body: actix_web::web::Bytes,
         url: &url::Url,
         sp: Arc<Mutex<crate::stability_patterns::StabilityPatterns>>,
+        go: Arc<Mutex<crate::GasketOptions>>,
     ) -> actix_web::Result<actix_web::HttpResponse> {
         // create an exponential backoff for the URL Path of ot does not exists
         let backoff_key = req.uri().path().to_string().clone();
+
+        // check if the circuitbreaker is open
+        if !sp.lock().unwrap().check_cb_status(backoff_key.clone()) {
+            info!("Circuitbreaker for {} tripped", backoff_key.clone());
+            return Ok(HttpResponse::InternalServerError().body(format!(
+                "Circuitbreaker for {} is open",
+                backoff_key.clone()
+            )));
+        }
+
         sp.lock().unwrap().exponential_backoff(backoff_key.clone());
-        // // connector w/ timeout
 
         let to = sp
             .lock()
@@ -42,10 +53,6 @@ impl Proxy {
             .current_timeout(backoff_key.clone())
             .to_std()
             .unwrap();
-        // let connector = awc::Connector::new()
-        //     // This is the timeout setting for connector. It's 1 second by default
-        //     .timeout(to.clone())
-        //     .finish();
 
         let client = awc::Client::new();
         let mut new_url = url.clone();
@@ -70,14 +77,22 @@ impl Proxy {
 
         let mut res = match client_req.send_body(body).await {
             Ok(res) => res,
-            Err(e) => {
-                // increments timeout
-                let _ = sp
+            Err(awc::error::SendRequestError::Timeout) => {
+                // Increments timeout if a timeout is received from backend
+                let tt = sp
                     .lock()
                     .unwrap()
-                    .next_backoff(backoff_key)
+                    .next_backoff(backoff_key.clone())
                     .to_std()
                     .unwrap();
+                return Ok(
+                    HttpResponse::RequestTimeout().body(format!("Backend Timeout: {:?}", tt))
+                );
+            }
+            Err(e) => {
+                if sp.lock().unwrap().trip(backoff_key.clone()) {
+                    info!("Circuitbreaker for {} tripped", backoff_key.clone());
+                }
                 return Ok(HttpResponse::InternalServerError().body(format!("{}", e)));
             }
         };

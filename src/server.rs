@@ -7,14 +7,14 @@ pub async fn mtls_server(
     dest_port: Arc<u16>,
     listen_addr: String,
 ) -> std::result::Result<(), std::io::Error> {
-    let private_key_path = match gasket_options.private_key_path {
+    let private_key_path = match gasket_options.private_key_path.clone() {
         Some(cert_path) => {
             info!("Private key path: {:?}", cert_path);
             cert_path
         }
         None => "private_key.pem".to_string(),
     };
-    let certificate_chain_path = match gasket_options.certificate_chain_path {
+    let certificate_chain_path = match gasket_options.certificate_chain_path.clone() {
         Some(cert_path) => {
             info!("Certificate chain path: {:?}", cert_path);
             cert_path
@@ -22,7 +22,7 @@ pub async fn mtls_server(
         None => "certificate_chain.pem".to_string(),
     };
 
-    let client_ca_path = match gasket_options.client_ca_path {
+    let client_ca_path = match gasket_options.client_ca_path.clone() {
         Some(cert_path) => {
             info!("Client certificate path: {:?}", cert_path);
             cert_path
@@ -50,6 +50,7 @@ pub async fn mtls_server(
         App::new()
             .app_data(web::Data::new(dest_port.clone()))
             .app_data(web::Data::new(sp.clone()))
+            .app_data(web::Data::new(Arc::new(Mutex::new(gasket_options.clone()))))
             .wrap(middleware::Logger::default())
             .default_service(web::route().to(crate::proxy::forward))
     })
@@ -67,14 +68,14 @@ pub async fn tls_server(
     dest_port: Arc<u16>,
     listen_addr: String,
 ) -> std::result::Result<(), std::io::Error> {
-    let private_key_path = match gasket_options.private_key_path {
+    let private_key_path = match gasket_options.private_key_path.clone() {
         Some(cert_path) => {
             info!("Private key path: {:?}", cert_path);
             cert_path
         }
         None => "private_key.pem".to_string(),
     };
-    let certificate_chain_path = match gasket_options.certificate_chain_path {
+    let certificate_chain_path = match gasket_options.certificate_chain_path.clone() {
         Some(cert_path) => {
             info!("Certificate chain path: {:?}", cert_path);
             cert_path
@@ -103,6 +104,7 @@ pub async fn tls_server(
         App::new()
             .app_data(web::Data::new(dest_port.clone()))
             .app_data(web::Data::new(sp.clone()))
+            .app_data(web::Data::new(Arc::new(Mutex::new(gasket_options.clone()))))
             .wrap(middleware::Logger::default())
             .default_service(web::route().to(crate::proxy::forward))
     })
@@ -120,14 +122,15 @@ pub async fn http_server(
     dest_port: Arc<u16>,
     listen_addr: String,
 ) -> std::result::Result<(), std::io::Error> {
-    let sp = Arc::new(Mutex::new(
-        crate::stability_patterns::StabilityPatterns::new(),
-    ));
     info!("Starting HTTP server");
     let s = HttpServer::new(move || {
+        let sp = Arc::new(Mutex::new(
+            crate::stability_patterns::StabilityPatterns::new(),
+        ));
         App::new()
             .app_data(web::Data::new(dest_port.clone()))
             .app_data(web::Data::new(sp.clone()))
+            .app_data(web::Data::new(Arc::new(Mutex::new(gasket_options.clone()))))
             .wrap(middleware::Logger::default())
             .default_service(web::route().to(crate::proxy::forward))
     })

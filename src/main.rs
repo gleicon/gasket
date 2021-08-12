@@ -16,7 +16,7 @@ mod tls_utils;
     - certificate_chain_path: String,
     - client_ca_path: String,
 */
-#[derive(Clap, Debug)]
+#[derive(Clap, Debug, Clone)]
 #[clap(name = "gasket")]
 #[clap(setting = AppSettings::ColoredHelp)]
 pub struct GasketOptions {
