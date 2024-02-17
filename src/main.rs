@@ -7,7 +7,6 @@ mod http_utils;
 mod process_manager;
 mod proxy;
 mod server;
-mod stability_patterns;
 mod tls_utils;
 
 /*
@@ -69,7 +68,7 @@ async fn main() -> std::io::Result<()> {
     let dest_port = Arc::new(port + 1);
 
     // proxy settings: always bind to localhost, always proxy to localhost
-    let listen_addr = format!("127.0.0.1:{}", port.to_string());
+    let listen_addr = format!("127.0.0.1:{port}");
     let gasket_options = GasketOptions::parse();
 
     std::env::set_var("RUST_LOG", "actix_web=debug,actix_server=debug,gasket=info");
@@ -93,5 +92,5 @@ async fn main() -> std::io::Result<()> {
     }
     let s = server::http_server(gasket_options, dest_port, listen_addr).await;
     handle.close();
-    return s;
+    s
 }

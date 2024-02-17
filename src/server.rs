@@ -29,9 +29,7 @@ pub async fn mtls_server(
         }
         None => "client_cert_path.pem".to_string(),
     };
-    let sp = Arc::new(Mutex::new(
-        crate::stability_patterns::StabilityPatterns::new(),
-    ));
+
     // mTLS builder
     let builder = match crate::tls_utils::CertificateManager::new_mtls_builder(
         private_key_path,
@@ -49,7 +47,6 @@ pub async fn mtls_server(
     let s = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(dest_port.clone()))
-            .app_data(web::Data::new(sp.clone()))
             .app_data(web::Data::new(Arc::new(Mutex::new(gasket_options.clone()))))
             .wrap(middleware::Logger::default())
             .default_service(web::route().to(crate::proxy::forward))
@@ -95,15 +92,10 @@ pub async fn tls_server(
         }
     };
 
-    let sp = Arc::new(Mutex::new(
-        crate::stability_patterns::StabilityPatterns::new(),
-    ));
-
     info!("Starting TLS server");
     let s = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(dest_port.clone()))
-            .app_data(web::Data::new(sp.clone()))
             .app_data(web::Data::new(Arc::new(Mutex::new(gasket_options.clone()))))
             .wrap(middleware::Logger::default())
             .default_service(web::route().to(crate::proxy::forward))
@@ -124,12 +116,8 @@ pub async fn http_server(
 ) -> std::result::Result<(), std::io::Error> {
     info!("Starting HTTP server");
     let s = HttpServer::new(move || {
-        let sp = Arc::new(Mutex::new(
-            crate::stability_patterns::StabilityPatterns::new(),
-        ));
         App::new()
             .app_data(web::Data::new(dest_port.clone()))
-            .app_data(web::Data::new(sp.clone()))
             .app_data(web::Data::new(Arc::new(Mutex::new(gasket_options.clone()))))
             .wrap(middleware::Logger::default())
             .default_service(web::route().to(crate::proxy::forward))

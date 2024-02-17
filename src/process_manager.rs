@@ -24,19 +24,19 @@ pub struct StaticProcessManager {
 const MAX_SPAWNS: u32 = 5;
 
 impl StaticProcessManager {
-    pub fn spawn_process(self: Self) {
+    pub fn spawn_process(self) {
         let cmd = self.cmd.clone();
 
-        if self.cmd != "" {
+        if self.cmd.is_empty() {
             info!("Spawning: {}", cmd);
-            let ms = self.max_spawns.clone();
-            let port = self.port.clone();
+            let ms = self.max_spawns;
+            let port = self.port;
             let _task = actix_web::rt::task::spawn_blocking(move || {
                 //let _task = std::thread::spawn(move || {
                 let arr_cmd: Vec<&str> = cmd.split_whitespace().collect();
                 let tx = self.pid_sender;
 
-                let cmd = arr_cmd[0].clone();
+                let cmd = arr_cmd[0];
 
                 let cleanup_time = time::Duration::from_secs(1);
                 let mut respawn_counter = 0;
@@ -54,11 +54,7 @@ impl StaticProcessManager {
                     };
                     info!("Spawned process pid: {}", child.id());
 
-                    match tx
-                        .lock()
-                        .unwrap()
-                        .blocking_send((child.id()).try_into().unwrap())
-                    {
+                    match tx.lock().unwrap().blocking_send(child.id()) {
                         Ok(_) => info!("{}", child.id()),
                         Err(e) => info!("Error {}", e),
                     }
@@ -71,7 +67,7 @@ impl StaticProcessManager {
                         Err(e) => info!("{}", e),
                     }
 
-                    respawn_counter = respawn_counter + 1;
+                    respawn_counter += 1;
                     if respawn_counter > ms {
                         info!("Process spawning too much, aborting gasket");
                         std::process::exit(-1);
@@ -94,42 +90,40 @@ impl StaticProcessManager {
             self_pid: std::process::id(),
             pid_receiver: Arc::new(Mutex::new(rx)),
             pid_sender: Arc::new(Mutex::new(tx)),
-            port: port + 1, // increment port by 1
+            port: port + 1, // increment port by 1, the port where the internal process binds
             max_spawns: MAX_SPAWNS,
-            cmd: cmd,
+            cmd,
         };
 
         info!("Spawn: env vars: PORT: {}", s.port);
-        let signals = Signals::new(&[SIGHUP, SIGTERM, SIGINT, SIGQUIT, SIGCHLD]).unwrap();
+        let signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT, SIGCHLD]).unwrap();
 
         let handle = signals.handle();
 
         s.clone().signals_handler(signals).await;
 
         s.clone().spawn_process(); // blocking process manager
-        return handle;
+        handle
     }
 
     async fn grim_reaper(&mut self, pid_t: i32) -> tokio::task::JoinHandle<()> {
-        let signal_task = actix_web::rt::spawn(async move {
+        actix_web::rt::spawn(async move {
             let mut st = 0;
             loop {
                 let lpid = unsafe { libc::waitpid(-1, &mut st, libc::WNOHANG) };
                 info!("Capturing zombie {}", lpid);
                 if lpid == pid_t {
-                    return ();
+                    return;
                 } else if lpid <= 0 {
                     break;
                 }
             }
-            ()
-        });
-        signal_task
+        })
     }
 
     async fn signals_handler(mut self, signals: Signals) -> tokio::task::JoinHandle<()> {
         let rx = Arc::clone(&self.pid_receiver);
-        let signal_task = actix_web::rt::spawn(async move {
+        actix_web::rt::spawn(async move {
             let mut signals = signals.fuse();
             while let Some(signal) = signals.next().await {
                 let pid = rx.lock().unwrap().recv().await.unwrap();
@@ -158,7 +152,6 @@ impl StaticProcessManager {
                     _ => unreachable!(),
                 }
             }
-        });
-        signal_task
+        })
     }
 }

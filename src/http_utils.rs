@@ -1,26 +1,23 @@
-use actix_web::{HttpRequest, HttpResponse};
-use log::info;
+use actix_web::{http::HeaderName, HttpRequest, HttpResponse};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 const HEADER_X_FORWARDED_FOR: &str = "X-FORWARDED-FOR";
 const HEADER_X_GASKET_REQUEST_ID: &str = "X-GASKET-REQUEST-ID";
+const HEADER_X_GASKET_MTLS_ACTIVE: &str = "X-GASKET-MTLS-ACTIVE";
 
-// const HOP_BY_HOP_HEADERS: Vec<&str> = vec![
-//     "connection",
-//     "proxy-connection",
-//     "keep-alive",
-//     "proxy-authenticate",
-//     "proxy-authorization",
-//     "te",
-//     "trailer",
-//     "transfer-encoding",
-//     "upgrade",
-// ];
+const HOP_BY_HOP_HEADERS: [&str; 9] = [
+    "connection",
+    "proxy-connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+];
 
-// TODO: prune hop by hop headers
-// TODO: add throttle info
-// TODO: consider adding mTLS info
 pub struct Proxy {
     pub id: Uuid, // request unique id
 }
@@ -30,29 +27,12 @@ impl Proxy {
         req: HttpRequest,
         body: actix_web::web::Bytes,
         url: &url::Url,
-        sp: Arc<Mutex<crate::stability_patterns::StabilityPatterns>>,
         go: Arc<Mutex<crate::GasketOptions>>,
     ) -> actix_web::Result<actix_web::HttpResponse> {
         // create an exponential backoff for the URL Path of ot does not exists
-        let backoff_key = req.uri().path().to_string().clone();
+        // let backoff_key = req.uri().path().to_string().clone();
 
         // check if the circuitbreaker is open
-        if !sp.lock().unwrap().check_cb_status(backoff_key.clone()) {
-            info!("Circuitbreaker for {} tripped", backoff_key.clone());
-            return Ok(HttpResponse::InternalServerError().body(format!(
-                "Circuitbreaker for {} is open",
-                backoff_key.clone()
-            )));
-        }
-
-        sp.lock().unwrap().exponential_backoff(backoff_key.clone());
-
-        let to = sp
-            .lock()
-            .unwrap()
-            .current_timeout(backoff_key.clone())
-            .to_std()
-            .unwrap();
 
         let client = awc::Client::new();
         let mut new_url = url.clone();
@@ -63,8 +43,11 @@ impl Proxy {
             .request_from(new_url.as_str(), req.head())
             .no_decompress();
 
-        // timeout increases on failures to avoid slowdowns
-        client_req = client_req.timeout(to);
+        // prune hop-by-hop headers
+        for header in HOP_BY_HOP_HEADERS {
+            let hh = client_req.headers_mut();
+            hh.remove(HeaderName::from_static(header));
+        }
 
         client_req = if let Some(addr) = req.peer_addr() {
             client_req.append_header((HEADER_X_FORWARDED_FOR, format!("{}", addr.ip())))
@@ -74,26 +57,20 @@ impl Proxy {
         // stamp unique id
         let id = Uuid::new_v4();
         client_req = client_req.append_header((HEADER_X_GASKET_REQUEST_ID, id.to_string()));
+        client_req = client_req.append_header((
+            HEADER_X_GASKET_MTLS_ACTIVE,
+            go.lock().unwrap().mtls_enabled.to_string(),
+        ));
 
         let mut res = match client_req.send_body(body).await {
             Ok(res) => res,
             Err(awc::error::SendRequestError::Timeout) => {
                 // Increments timeout if a timeout is received from backend
-                let tt = sp
-                    .lock()
-                    .unwrap()
-                    .next_backoff(backoff_key.clone())
-                    .to_std()
-                    .unwrap();
-                return Ok(
-                    HttpResponse::RequestTimeout().body(format!("Backend Timeout: {:?}", tt))
-                );
+
+                return Ok(HttpResponse::RequestTimeout().body("Backend Timeout"));
             }
             Err(e) => {
-                if sp.lock().unwrap().trip(backoff_key.clone()) {
-                    info!("Circuitbreaker for {} tripped", backoff_key.clone());
-                }
-                return Ok(HttpResponse::InternalServerError().body(format!("{}", e)));
+                return Ok(HttpResponse::InternalServerError().body(format!("{e}")));
             }
         };
 
@@ -108,6 +85,6 @@ impl Proxy {
         hrb.append_header((HEADER_X_GASKET_REQUEST_ID, id.to_string()));
         let res_a = hrb.message_body(res_body).unwrap();
 
-        return Ok(res_a);
+        Ok(res_a)
     }
 }
