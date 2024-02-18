@@ -1,5 +1,6 @@
 use actix_web::{http::HeaderName, HttpRequest, HttpResponse};
 use std::sync::{Arc, Mutex};
+
 use uuid::Uuid;
 
 const HEADER_X_FORWARDED_FOR: &str = "X-FORWARDED-FOR";
@@ -20,20 +21,16 @@ const HOP_BY_HOP_HEADERS: [&str; 9] = [
 
 pub struct Proxy {
     pub id: Uuid, // request unique id
+    pub retries: u32,
 }
 
 impl Proxy {
     pub async fn forward(
         req: HttpRequest,
         body: actix_web::web::Bytes,
-        url: &url::Url,
+        url: url::Url,
         go: Arc<Mutex<crate::GasketOptions>>,
     ) -> actix_web::Result<actix_web::HttpResponse> {
-        // create an exponential backoff for the URL Path of ot does not exists
-        // let backoff_key = req.uri().path().to_string().clone();
-
-        // check if the circuitbreaker is open
-
         let client = awc::Client::new();
         let mut new_url = url.clone();
 

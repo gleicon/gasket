@@ -25,10 +25,9 @@ impl CertificateManager {
             .set_private_key_file(private_key_path, SslFiletype::PEM)
             .unwrap();
         match builder.set_certificate_chain_file(certificate_chain_path) {
-            Ok(_b) => return Ok(builder),
-            Err(e) => return Err(e.into()), //Err(format!("{}", e)),
-        };
-        //Ok(builder)
+            Ok(_b) => Ok(builder),
+            Err(e) => Err(e.into()),
+        }
     }
 
     // "ca/server/client-ssl.key"
@@ -49,7 +48,7 @@ impl CertificateManager {
         let mut builder =
             match CertificateManager::new_tls_builder(private_key_path, certificate_chain_path) {
                 Ok(b) => b,
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(e),
             };
 
         let ca_cert = fs::read_to_string(client_ca_path)?.into_bytes();

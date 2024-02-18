@@ -22,7 +22,7 @@ bytes = { version = "1.0.1", features = ["serde"] }
 tokio-util = "0.6.7"
 openssl = "0.10.35" 
 chrono = { version = "0.4.19", features = ["serde"] }
-
+tokio-retry = "0.3"
 
 
  

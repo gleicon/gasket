@@ -43,14 +43,6 @@ pub struct GasketOptions {
     #[clap(short = 'm', long = "mtls")]
     mtls_enabled: bool,
 
-    /// throttling
-    #[clap(short = 'r', long = "throttling")]
-    throttling_enabled: bool,
-
-    /// circuit breaker
-    #[clap(short = 'b', long = "circuitbreaker")]
-    circuitbreaker_enabled: bool,
-
     /// exponential backoff
     #[clap(short = 'k', long = "backoff")]
     backoff_enabled: bool,

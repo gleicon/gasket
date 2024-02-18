@@ -44,7 +44,7 @@ pub async fn mtls_server(
     };
 
     info!("Starting mTLS server");
-    let s = HttpServer::new(move || {
+    HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(dest_port.clone()))
             .app_data(web::Data::new(Arc::new(Mutex::new(gasket_options.clone()))))
@@ -56,8 +56,7 @@ pub async fn mtls_server(
     .bind_openssl(listen_addr.clone(), builder)
     .unwrap()
     .run()
-    .await;
-    return s;
+    .await
 }
 
 pub async fn tls_server(
@@ -93,7 +92,7 @@ pub async fn tls_server(
     };
 
     info!("Starting TLS server");
-    let s = HttpServer::new(move || {
+    HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(dest_port.clone()))
             .app_data(web::Data::new(Arc::new(Mutex::new(gasket_options.clone()))))
@@ -105,8 +104,7 @@ pub async fn tls_server(
     .bind_openssl(listen_addr.clone(), builder)
     .unwrap()
     .run()
-    .await;
-    return s;
+    .await
 }
 
 pub async fn http_server(
@@ -115,7 +113,7 @@ pub async fn http_server(
     listen_addr: String,
 ) -> std::result::Result<(), std::io::Error> {
     info!("Starting HTTP server");
-    let s = HttpServer::new(move || {
+    HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(dest_port.clone()))
             .app_data(web::Data::new(Arc::new(Mutex::new(gasket_options.clone()))))
@@ -127,7 +125,5 @@ pub async fn http_server(
     .bind(listen_addr)
     .unwrap()
     .run()
-    .await;
-
-    s
+    .await
 }
