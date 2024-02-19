@@ -1,7 +1,5 @@
 use clap::{AppSettings, Clap};
 use log::info;
-use std::env;
-use std::sync::Arc;
 
 mod http_utils;
 mod process_manager;
@@ -50,17 +48,6 @@ pub struct GasketOptions {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // PORT will always be a pair like:
-    // Origin port is 3000, destination port will be 3001
-    // Gasket increments the port by one based on the PORT env var
-    // or defaults to port 3000
-    let port: u16 = env::var("PORT")
-        .map(|s| s.parse().unwrap_or(3000))
-        .unwrap_or(3000);
-    let dest_port = Arc::new(port + 1);
-
-    // proxy settings: always bind to localhost, always proxy to localhost
-    let listen_addr = format!("127.0.0.1:{port}");
     let gasket_options = GasketOptions::parse();
 
     std::env::set_var("RUST_LOG", "actix_web=debug,actix_server=debug,gasket=info");
@@ -71,18 +58,5 @@ async fn main() -> std::io::Result<()> {
 
     info!("Starting process manager");
     let handle = process_manager::StaticProcessManager::run(cmd).await;
-    // mTLS supercedes tls (if mtls is enable -t/--tls is ignored)
-    // defaults to http server if none is set
-    if gasket_options.mtls_enabled {
-        let s = server::mtls_server(gasket_options, dest_port, listen_addr).await;
-        handle.close();
-        return s;
-    } else if gasket_options.tls_enabled {
-        let s = server::tls_server(gasket_options, dest_port, listen_addr).await;
-        handle.close();
-        return s;
-    }
-    let s = server::http_server(gasket_options, dest_port, listen_addr).await;
-    handle.close();
-    s
+    server::start_server(gasket_options, handle).await
 }

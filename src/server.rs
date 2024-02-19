@@ -1,6 +1,40 @@
 use actix_web::{middleware, web, App, HttpServer};
 use log::info;
-use std::sync::{Arc, Mutex};
+use signal_hook_tokio::Handle;
+use std::env;
+use std::sync::Arc;
+use std::sync::Mutex;
+
+use crate::GasketOptions;
+
+pub async fn start_server(go: GasketOptions, handle: Handle) -> std::io::Result<()> {
+    // PORT will always be a pair like:
+    // Origin port is 3000, destination port will be 3001
+    // Gasket increments the port by one based on the PORT env var
+    // or defaults to port 3000
+    let port: u16 = env::var("PORT")
+        .map(|s| s.parse().unwrap_or(3000))
+        .unwrap_or(3000);
+    let dest_port = Arc::new(port + 1);
+    info!("PORT: {port}, backend PORT: {dest_port}");
+    if go.backoff_enabled {
+        info!("Backoff enabled");
+    }
+    // proxy settings: always bind to localhost, always proxy to localhost
+    let listen_addr = format!("127.0.0.1:{port}");
+    // mTLS supercedes tls (if mtls is enable -t/--tls is ignored)
+    // defaults to http server if none is set
+    if go.mtls_enabled {
+        let s = mtls_server(go, dest_port, listen_addr).await;
+        handle.close();
+        return s;
+    } else if go.tls_enabled {
+        let s = tls_server(go, dest_port, listen_addr).await;
+        handle.close();
+        return s;
+    }
+    http_server(go, dest_port, listen_addr).await
+}
 
 pub async fn mtls_server(
     gasket_options: crate::GasketOptions,

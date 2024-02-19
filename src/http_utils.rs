@@ -71,8 +71,7 @@ impl Proxy {
             }
         };
 
-        let res_body = actix_web::dev::AnyBody::from(res.body().await.unwrap());
-
+        //let res_body = actix_web::dev::AnyBody::from(res.body().await.unwrap());
         let mut hrb = HttpResponse::build(res.status());
 
         for (header_name, header_value) in res.headers().iter().filter(|(h, _)| *h != "connection")
@@ -80,7 +79,7 @@ impl Proxy {
             hrb.append_header((header_name.clone(), header_value.clone()));
         }
         hrb.append_header((HEADER_X_GASKET_REQUEST_ID, id.to_string()));
-        let res_a = hrb.message_body(res_body).unwrap();
+        let res_a = hrb.message_body(res.body().await.unwrap().into()).unwrap();
 
         Ok(res_a)
     }
