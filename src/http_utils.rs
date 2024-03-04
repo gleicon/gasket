@@ -1,4 +1,6 @@
-use actix_web::{http::HeaderName, HttpRequest, HttpResponse};
+use actix_http::header::HeaderName;
+use actix_web::{HttpRequest, HttpResponse};
+
 use std::sync::{Arc, Mutex};
 
 use uuid::Uuid;
@@ -79,7 +81,7 @@ impl Proxy {
             hrb.append_header((header_name.clone(), header_value.clone()));
         }
         hrb.append_header((HEADER_X_GASKET_REQUEST_ID, id.to_string()));
-        let res_a = hrb.message_body(res.body().await.unwrap().into()).unwrap();
+        let res_a = hrb.body(res.body().await.unwrap());
 
         Ok(res_a)
     }

@@ -11,6 +11,7 @@ use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
 
 use std::sync::Mutex;
+//use tokio::sync::{Mutex, MutexGuard};
 
 #[derive(Clone)]
 pub struct StaticProcessManager {
@@ -24,7 +25,7 @@ pub struct StaticProcessManager {
 const MAX_SPAWNS: u32 = 5;
 
 impl StaticProcessManager {
-    pub fn spawn_process(self) {
+    pub async fn spawn_process(self) {
         let cmd = self.cmd.clone();
 
         if self.cmd.is_empty() {
@@ -54,7 +55,8 @@ impl StaticProcessManager {
                     };
                     info!("Spawned process pid: {}", child.id());
 
-                    match tx.lock().unwrap().blocking_send(child.id()) {
+                    let ttx = tx.lock().unwrap();
+                    match ttx.blocking_send(child.id()) {
                         Ok(_) => info!("{}", child.id()),
                         Err(e) => info!("Error {}", e),
                     }
@@ -102,7 +104,7 @@ impl StaticProcessManager {
 
         s.clone().signals_handler(signals).await;
 
-        s.clone().spawn_process(); // blocking process manager
+        s.clone().spawn_process().await; // blocking process manager
         handle
     }
 
@@ -126,8 +128,9 @@ impl StaticProcessManager {
         actix_web::rt::spawn(async move {
             let mut signals = signals.fuse();
             while let Some(signal) = signals.next().await {
-                let pid = rx.lock().unwrap().recv().await.unwrap();
-                let pid_t: libc::pid_t = match pid.try_into() {
+                let mut pid = rx.lock().unwrap();
+                let pipita = pid.recv().await.unwrap();
+                let pid_t: libc::pid_t = match pipita.try_into() {
                     Ok(x) => x,
                     Err(_e) => -1,
                 };

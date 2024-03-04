@@ -6,7 +6,8 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = { version = "4.0.0-beta.8", features = ["openssl"] }
+actix-web = { version = "4.5.1", features = ["openssl"] }
+actix-http = "3.6.0"
 futures = "0.3.15"
 log = "0.4.0"
 env_logger = "0.8.3"
@@ -17,12 +18,13 @@ tokio = { version = "1.8.1", features = ["process", "sync", "rt", "signal"] }
 signal-hook = "0.3.9"
 signal-hook-tokio = { version="0.3.0", features = ["futures-v0_3"] }
 libc = "0.2.98"
-awc = " 3.0.0-beta.7"
+awc = "3.4.0"
 bytes = { version = "1.0.1", features = ["serde"] }
 tokio-util = "0.6.7"
 openssl = "0.10.35" 
 chrono = { version = "0.4.19", features = ["serde"] }
 tokio-retry = "0.3"
+actix-connect = "2.0.0"
 
 
  
